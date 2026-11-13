@@ -767,6 +767,191 @@ fun LiveLyric(lyrics: Lyrics?, pos: () -> Long, onOpen: () -> Unit) {
     }
 }
 
+@Composable
+fun TimeRow(posS: State<Long>, durS: State<Long>) {
+    val pos = posS.value; val dur = durS.value
+    Row(Modifier.fillMaxWidth()) {
+        Text(fmt(pos), color = Dim, fontSize = 13.sp)
+        Spacer(Modifier.weight(1f))
+        Text("-" + fmt(dur - pos), color = Dim, fontSize = 13.sp)
+    }
+}
+
+@Composable
+fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: () -> Long, accent: Color, onSeek: (Long) -> Unit, onPick: () -> Unit, modifier: Modifier) {
+    Box(modifier) {
+        when {
+            loading -> Text("searching for lyrics…", color = Dim, fontSize = 20.sp, fontWeight = FontWeight.Light)
+            lyrics == null -> Column {
+                Text("no lyrics found", color = White, fontSize = 24.sp, fontWeight = FontWeight.Light)
+                Text("put a .lrc file with the same name next to the song, set a lyrics folder in settings, or turn on online lyrics.",
+                    color = Dim, fontSize = 15.sp, modifier = Modifier.padding(vertical = 8.dp))
+                Text("load .lrc file", color = accent, fontSize = 18.sp, modifier = Modifier.clickable(onClick = onPick).padding(vertical = 8.dp))
+            }
+            else -> {
+                val state = rememberLazyListState()
+                val cur by remember(lyrics) { derivedStateOf { if (lyrics.synced) lyrics.lines.indexOfLast { it.time <= pos() + 150 } else -1 } }
+                LaunchedEffect(cur) { if (cur >= 0) state.animateScrollToItem((cur - 2).coerceAtLeast(0)) }
+                LazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(lyrics.lines) { i, l ->
+                        Text(l.text.ifBlank { "♪" },
+                            color = when { i == cur -> White; lyrics.synced -> White.copy(alpha = 0.35f); else -> White.copy(alpha = 0.85f) },
+                            fontSize = if (i == cur) 24.sp else 20.sp,
+                            fontWeight = if (i == cur) FontWeight.Normal else FontWeight.Light,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable(enabled = lyrics.synced) { onSeek(l.time) }
+                                .padding(vertical = 6.dp))
+                    }
+                    item {
+                        Column(Modifier.padding(top = 16.dp, bottom = 40.dp)) {
+                            Text("lyrics: ${lyrics.source}${if (!lyrics.synced) " (not synced)" else ""}", color = Dim, fontSize = 13.sp)
+                            Text("use a different .lrc file", color = accent, fontSize = 15.sp,
+                                modifier = Modifier.clickable(onClick = onPick).padding(vertical = 6.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SeekBar(posS: State<Long>, durS: State<Long>, accent: Color, onSeek: (Long) -> Unit) {
+    var drag by remember { mutableStateOf<Float?>(null) }
+    val seek by rememberUpdatedState(onSeek)
+    val d by durS
+    Canvas(Modifier.fillMaxWidth().height(26.dp)
+        .pointerInput(Unit) { detectTapGestures { o -> if (d > 0) seek((o.x / size.width * d).toLong()) } }
+        .pointerInput(Unit) {
+            detectHorizontalDragGestures(
+                onDragEnd = { drag?.let { if (d > 0) seek((it * d).toLong()) }; drag = null },
+                onDragCancel = { drag = null }
+            ) { ch, _ -> drag = (ch.position.x / size.width).coerceIn(0f, 1f) }
+        }) {
+        val pos = posS.value; val dur = durS.value
+        val frac = drag ?: if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+        val y = size.height / 2
+        val w = 5.dp.toPx()
+        drawLine(Color.White.copy(alpha = 0.25f), Offset(0f, y), Offset(size.width, y), w)
+        drawLine(accent, Offset(0f, y), Offset(size.width * frac, y), w)
+    }
+}
+
+@Composable
+fun CircleButton(icon: ImageVector, size: Dp, onClick: () -> Unit) {
+    Box(Modifier.size(size).tilt(onClick).clip(CircleShape).border(2.5.dp, White, CircleShape),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = White, modifier = Modifier.size(size * 0.5f))
+    }
+}
+
+@Composable
+fun ToggleIcon(icon: ImageVector, on: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(Modifier.size(44.dp).tilt(onClick).clip(CircleShape), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = if (on) accent else Dim, modifier = Modifier.size(26.dp))
+    }
+}
+
+// ───────────────────────── artist ─────────────────────────
+
+@Composable
+fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    val ctx = LocalContext.current
+    val songs = remember(name, vm.songs.value) {
+        vm.songs.value.filter { it.artist == name }.sortedWith(compareBy({ it.album.lowercase() }, { it.track }, { it.title }))
+    }
+    val albums = remember(songs) { songs.groupBy { it.albumId }.values.toList() }
+    var info by remember(name) { mutableStateOf<ArtistInfo?>(null) }
+    var loading by remember(name) { mutableStateOf(true) }
+    LaunchedEffect(name) { info = ArtistRepository.load(ctx, name); loading = false }
+    var bioOpen by remember { mutableStateOf(false) }
+    val list = rememberLazyListState()
+    val intro = rememberIntro()
+    val play: (Int) -> Unit = { conn.playSongs(songs, it); open(Screen.Playing) }
+
+    Box(Modifier.fillMaxSize()) {
+        // artist photo fills the background, drifting slower than the list (parallax), like WP8 Music
+        AnimatedContent(info?.image, transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(300)) }, label = "photo") { img ->
+            Box(Modifier.fillMaxSize()) {
+                if (img != null) AsyncImage(model = img, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(0.8f).graphicsLayer {
+                        val off = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else 2000f
+                        translationY = -off * 0.4f
+                    })
+                else TintBackground(accent, 0.45f)
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            0f to accent.copy(alpha = 0.25f), 0.35f to Color.Black.copy(alpha = 0.35f), 0.62f to Color.Black)))
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+                item { Spacer(Modifier.height(170.dp)) }
+                item {
+                    Text((info?.name ?: name).lowercase(), color = White, fontSize = 62.sp, fontWeight = FontWeight.Light,
+                        letterSpacing = (-2).sp, maxLines = 1, softWrap = false,
+                        modifier = Modifier.feather(0, intro).wrapContentWidth(Alignment.Start, unbounded = true))
+                    val sub = buildList {
+                        add("${songs.size} songs"); if (albums.size > 1) add("${albums.size} albums")
+                        info?.fans?.takeIf { it > 0 }?.let { add(fans(it) + " fans") }
+                    }.joinToString(" · ")
+                    Text(sub, color = White.copy(alpha = 0.75f), fontSize = 15.sp, modifier = Modifier.feather(1, intro))
+                }
+                item {
+                    Row(Modifier.feather(2, intro).padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("play", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt { if (songs.isNotEmpty()) play(0) }
+                            .padding(horizontal = 22.dp, vertical = 10.dp))
+                        Text("shuffle", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White)
+                            .tilt { if (songs.isNotEmpty()) { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) } }
+                            .padding(horizontal = 22.dp, vertical = 8.dp))
+                    }
+                }
+                item {
+                    Column(Modifier.feather(3, intro).fillMaxWidth().padding(bottom = 10.dp)) {
+                        Text("biography", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        when {
+                            loading -> Text("finding out about this artist…", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                            info?.bio == null -> Text("no information found online", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                            else -> {
+                                Text(info!!.bio!!, color = White.copy(alpha = 0.9f), fontSize = 16.sp, fontWeight = FontWeight.Light,
+                                    maxLines = if (bioOpen) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.tilt { bioOpen = !bioOpen }.padding(vertical = 4.dp))
+                                Text(if (bioOpen) "less" else "more", color = accent, fontSize = 15.sp,
+                                    modifier = Modifier.tilt { bioOpen = !bioOpen }.padding(vertical = 4.dp))
+                                Text("from Wikipedia", color = Dim, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                if (albums.isNotEmpty()) item {
+                    Text("albums", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        itemsIndexed(albums) { _, a ->
+                            Column(Modifier.width(130.dp).tilt {
+                                open(Screen.Detail(a[0].album, a[0].artist, a.sortedWith(compareBy({ it.track }, { it.title }))))
+                            }) {
+                                Art(a[0].artUri, accent, Modifier.size(130.dp))
+                                Text(a[0].album.lowercase(), color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                    }
+                }
+                item { Text("songs", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)) }
+                itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
+                    SongRow(s.title, "${s.album} · ${s.format}") { play(i) }
+                }
+            }
+            if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
+        }
+    }
+}
+
+private fun fans(n: Int): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000f)
+    n >= 1_000 -> "%.1fK".format(n / 1_000f)
+    else -> n.toString()
+}
+
 /** Text that slides in the direction the song changed. */
 @Composable
 fun <T> SlideText(value: T, dir: Int, content: @Composable (T) -> Unit) {
