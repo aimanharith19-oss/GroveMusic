@@ -5,7 +5,11 @@ import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -60,17 +64,23 @@ object ArtistRepository {
             info?.let { prefetchImages(ctx, it) }
             info
         } catch (e: IOException) { null } // offline: don't remember the miss, try again next time
+        catch (e: Exception) { prefs(ctx).edit().putString(k, JSONObject().put("none", true).toString()).apply(); null }
     }
 
     /** Download info + pictures for every artist not cached yet (runs after each library scan). */
-    suspend fun syncAll(ctx: Context, artists: Collection<String>, onEach: () -> Unit = {}) = withContext(Dispatchers.IO) {
-        for (a in artists) {
-            if (isCached(ctx, a)) continue
-            if (load(ctx, a) == null && !isCached(ctx, a)) break // offline — stop, retry next scan
-            onEach()
-            delay(250)
+    /** Download info + pictures for every artist not cached yet, 4 at a time. */
+    suspend fun syncAll(ctx: Context, artists: Collection<String>, onProgress: (done: Int, total: Int) -> Unit) = withContext(Dispatchers.IO) {
+        val todo = artists.filter { !isCached(ctx, it) }
+        if (todo.isEmpty()) { onProgress(0, 0); return@withContext }
+        val done = java.util.concurrent.atomic.AtomicInteger(0)
+        val sem = Semaphore(4)
+        onProgress(0, todo.size)
+        coroutineScope {
+            todo.map { a -> async { sem.withPermit { load(ctx, a); onProgress(done.incrementAndGet(), todo.size) } } }.awaitAll()
         }
     }
+
+    fun cachedCount(ctx: Context, artists: Collection<String>) = artists.count { isCached(ctx, it) }
 
     private fun prefetchImages(ctx: Context, info: ArtistInfo) {
         val urls = listOfNotNull(info.image) + info.releases.mapNotNull { it.cover }

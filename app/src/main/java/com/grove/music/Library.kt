@@ -121,10 +121,29 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         folders.value = all.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
         apply()
         loading.value = false
-        // fetch & keep artist info/pictures for any new artists, so artist pages work offline
-        val names = songs.value.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
-        ArtistRepository.syncAll(getApplication(), names) { artistTick.intValue++ }
+        syncArtists()
     }
+
+    /** (done, total) while artist info is downloading, null when idle */
+    val artistSync = mutableStateOf<Pair<Int, Int>?>(null)
+    private var syncing = false
+
+    /** fetch & keep info + pictures for every artist at once, so artist pages work offline */
+    fun syncArtists() {
+        if (syncing) return
+        syncing = true
+        viewModelScope.launch {
+            val names = songs.value.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
+            ArtistRepository.syncAll(getApplication(), names) { d, t ->
+                artistSync.value = if (t == 0 || d >= t) null else d to t
+                if (d % 5 == 0 || d == t) artistTick.intValue++
+            }
+            artistSync.value = null; artistTick.intValue++
+            syncing = false
+        }
+    }
+
+    fun artistNames() = songs.value.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
 
     /** (done, total, current song title) while converting to FLAC, null when idle */
     val flacJob = mutableStateOf<Triple<Int, Int, String>?>(null)

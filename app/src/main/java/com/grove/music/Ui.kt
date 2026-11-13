@@ -57,6 +57,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -157,6 +158,7 @@ sealed interface Screen {
     data object Settings : Screen
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
+    data object Search : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
 
@@ -204,6 +206,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     Screen.Settings -> SettingsScreen(vm, prefs, accent, { accentInt = it; prefs.accent = it }) { vm.load() }
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
+                    Screen.Search -> SearchScreen(vm, conn, accent, open)
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
                 }
@@ -216,6 +219,96 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                 AddToPlaylistSheet(vm, addTarget ?: emptyList(), accent) { addTarget = null }
             }
         }
+        }
+    }
+}
+
+/** Search across songs, artists, albums and playlists. */
+@Composable
+fun SearchScreen(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    var q by rememberSaveable { mutableStateOf("") }
+    val ctx = LocalContext.current
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    val songs = vm.songs.value
+    val t = q.trim().lowercase()
+    val res = remember(t, songs, vm.playlists.lists.value) {
+        if (t.isEmpty()) null else {
+            val sm = songs.filter { it.title.lowercase().contains(t) || it.artist.lowercase().contains(t) }
+            val ar = songs.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
+                .filter { it.lowercase().contains(t) }.sortedBy { it.lowercase() }
+            val al = songs.groupBy { it.albumId }.values.filter { it[0].album.lowercase().contains(t) || it[0].artist.lowercase().contains(t) }
+            val pl = vm.playlists.lists.value.filter { it.name.lowercase().contains(t) }
+            listOf(sm, ar, al, pl)
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
+        TintBackground(accent, 0.30f)
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
+            Text("GROVE MUSIC", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 20.dp, top = 14.dp))
+            Text("search", color = White, fontSize = 56.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 20.dp))
+            OutlinedTextField(q, { q = it }, singleLine = true, placeholder = { Text("songs, artists, albums, playlists") },
+                leadingIcon = { Icon(Icons.Rounded.Search, null, tint = White) },
+                trailingIcon = { if (q.isNotEmpty()) Icon(Icons.Rounded.Close, "clear", tint = White, modifier = Modifier.tilt { q = "" }) },
+                shape = androidx.compose.ui.graphics.RectangleShape,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = White, unfocusedBorderColor = White.copy(alpha = 0.5f),
+                    cursorColor = White, focusedTextColor = White, unfocusedTextColor = White,
+                    focusedContainerColor = Color.Black.copy(alpha = 0.3f), unfocusedContainerColor = Color.Black.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).focusRequester(focus))
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+                if (res == null) item { Text("type to search your whole library", color = Dim, fontSize = 16.sp, modifier = Modifier.padding(top = 12.dp)) }
+                else {
+                    val (sm, ar, al, pl) = res
+                    if (sm.isEmpty() && ar.isEmpty() && al.isEmpty() && pl.isEmpty())
+                        item { Text("nothing found for \"$q\"", color = Dim, fontSize = 16.sp, modifier = Modifier.padding(top = 12.dp)) }
+                    if (ar.isNotEmpty()) {
+                        item { SectionLabel("artists", accent) }
+                        itemsIndexed((ar as List<String>).take(8)) { _, name ->
+                            val info = remember(name, vm.artistTick.intValue) { ArtistRepository.cached(ctx, name) }
+                            Row(Modifier.fillMaxWidth().tilt { open(Screen.Artist(name)) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(50.dp).background(lerp(accent, Color.Black, 0.35f)), contentAlignment = Alignment.Center) {
+                                    Text(name.take(1).lowercase(), color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                                    if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                }
+                                Text(name.lowercase(), color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 14.dp))
+                            }
+                        }
+                    }
+                    if (al.isNotEmpty()) {
+                        item { SectionLabel("albums", accent) }
+                        itemsIndexed((al as List<List<Song>>).take(10)) { _, l ->
+                            Row(Modifier.fillMaxWidth().tilt {
+                                open(Screen.Detail(l[0].album, l[0].artist, l.sortedWith(compareBy({ it.track }, { it.title }))))
+                            }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Art(l[0].artUri, accent, Modifier.size(50.dp))
+                                Column(Modifier.padding(start = 14.dp)) {
+                                    Text(l[0].album.lowercase(), color = White, fontSize = 20.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(l[0].artist, color = Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                    if (pl.isNotEmpty()) {
+                        item { SectionLabel("playlists", accent) }
+                        itemsIndexed(pl as List<Playlist>) { _, p ->
+                            Row(Modifier.fillMaxWidth().tilt { open(Screen.PlaylistView(p.id)) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(50.dp).background(accent), contentAlignment = Alignment.Center) {
+                                    Icon(if (p.id == PlaylistStore.LIKED) Icons.Rounded.Favorite else Icons.AutoMirrored.Rounded.QueueMusic, null, tint = White)
+                                }
+                                Text(p.name.lowercase(), color = White, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+                            }
+                        }
+                    }
+                    if (sm.isNotEmpty()) {
+                        item { SectionLabel("songs · ${sm.size}", accent) }
+                        val list = sm as List<Song>
+                        itemsIndexed(list.take(100), key = { _, s -> "s${s.id}" }) { i, s ->
+                            SongRow(s.title, "${s.artist} · ${s.album}", s.id) { conn.playSongs(list, i); open(Screen.Playing) }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -322,8 +415,8 @@ fun HomeScreen(
                 }
             }
         }
-        if (conn.current.value != null) MiniPlayer(conn, accent, onMore = { menu = !menu }) { open(Screen.Playing) }
-        else AppBar(accent) { menu = !menu }
+        if (conn.current.value != null) MiniPlayer(conn, accent, onMore = { menu = !menu }, onSearch = { open(Screen.Search) }) { open(Screen.Playing) }
+        else AppBar(accent, onSearch = { open(Screen.Search) }) { menu = !menu }
     }
     // Windows Phone app-bar menu: slides up from the bottom when "•••" is tapped
     AnimatedVisibility(menu, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
@@ -334,6 +427,7 @@ fun HomeScreen(
         Column(Modifier.fillMaxWidth().background(lerp(accent, Color.Black, 0.62f)).navigationBarsPadding()
             .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 18.dp)) {
             listOf(
+                "search" to { open(Screen.Search) },
                 "shuffle all" to { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) },
                 "rescan library" to { vm.load(); Unit },
                 "settings" to { open(Screen.Settings) },
@@ -348,9 +442,11 @@ fun HomeScreen(
 
 /** Minimised Windows Phone application bar: just the "•••" at the right. */
 @Composable
-fun AppBar(accent: Color, onMore: () -> Unit) {
-    Row(Modifier.fillMaxWidth().height(36.dp).background(Color.Black.copy(alpha = 0.55f)).background(accent.copy(alpha = 0.12f))
+fun AppBar(accent: Color, onSearch: () -> Unit, onMore: () -> Unit) {
+    Row(Modifier.fillMaxWidth().height(52.dp).background(Color.Black.copy(alpha = 0.55f)).background(accent.copy(alpha = 0.12f))
         .tilt(onMore), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        AppBarButton(Icons.Rounded.Search, onSearch)
+        Spacer(Modifier.width(6.dp))
         Icon(Icons.Rounded.MoreHoriz, "more", tint = White, modifier = Modifier.padding(end = 18.dp).size(26.dp))
     }
 }
@@ -460,7 +556,16 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
     val ctx = LocalContext.current
     val tick = vm.artistTick.intValue
     val intro = rememberIntro()
+    val sync = vm.artistSync.value
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        if (sync != null) item {
+            Column(Modifier.padding(bottom = 6.dp)) {
+                Text("downloading artist info ${sync.first} of ${sync.second}", color = Dim, fontSize = 13.sp)
+                Canvas(Modifier.fillMaxWidth().padding(top = 4.dp).height(3.dp)) {
+                    drawRect(Color.White.copy(alpha = 0.12f)); drawRect(accent, size = size.copy(width = size.width * sync.first / sync.second))
+                }
+            }
+        }
         var prev: Char? = null
         var n = 0
         groups.forEachIndexed { i, (name, count) ->
@@ -669,6 +774,15 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(online, { online = it; prefs.onlineLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
+        // ── artist info
+        val sync = vm.artistSync.value
+        val tick = vm.artistTick.intValue
+        val names = remember(vm.songs.value) { vm.artistNames() }
+        val ctx = LocalContext.current
+        val have = remember(names, tick) { ArtistRepository.cachedCount(ctx, names) }
+        SettingItem("download all artist info",
+            if (sync != null) "downloading ${sync.first} of ${sync.second}…"
+            else "$have of ${names.size} artists saved for offline · photos, bios and discographies") { vm.syncArtists() }
         // ── FLAC
         Text("flac", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
         val job = vm.flacJob.value
@@ -735,7 +849,7 @@ fun Art(uri: Uri?, accent: Color, modifier: Modifier) {
 /** Windows Phone style "now playing" app bar: thin accent progress line, square art,
  *  light lowercase text that slides on song change, and outlined round app-bar buttons. */
 @Composable
-fun MiniPlayer(conn: PlayerConnection, accent: Color, onMore: (() -> Unit)? = null, onOpen: () -> Unit) {
+fun MiniPlayer(conn: PlayerConnection, accent: Color, onMore: (() -> Unit)? = null, onSearch: (() -> Unit)? = null, onOpen: () -> Unit) {
     val md = conn.current.value?.mediaMetadata ?: return
     val prog = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
@@ -759,6 +873,7 @@ fun MiniPlayer(conn: PlayerConnection, accent: Color, onMore: (() -> Unit)? = nu
             }
             AppBarButton(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow) { conn.playPause() }
             AppBarButton(Icons.Rounded.SkipNext) { conn.next() }
+            if (onSearch != null) AppBarButton(Icons.Rounded.Search, onSearch)
             if (onMore != null) Icon(Icons.Rounded.MoreHoriz, "more", tint = White,
                 modifier = Modifier.padding(start = 2.dp).size(38.dp).clip(CircleShape).tilt(onMore).padding(6.dp))
         }
