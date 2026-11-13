@@ -8,6 +8,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -36,7 +42,16 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -53,6 +68,7 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val White = Color.White
 private val Dim = Color(0xFF8A8A8A)
@@ -64,6 +80,52 @@ val Accents = listOf(
     0xFFE3C800, 0xFF825A2C, 0xFF6D8764, 0xFF647687, 0xFF76608A, 0xFF87794E,
 ).map { it.toInt() }
 
+private val WpEase = CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f)
+
+/** Windows Phone "tilt" press effect: the item tips toward the finger. */
+fun Modifier.tilt(onClick: () -> Unit): Modifier = composed {
+    var pressed by remember { mutableStateOf(false) }
+    var touch by remember { mutableStateOf(Offset.Zero) }
+    var sz by remember { mutableStateOf(IntSize.Zero) }
+    val p by animateFloatAsState(if (pressed) 1f else 0f, tween(if (pressed) 90 else 260, easing = WpEase), label = "tilt")
+    val click by rememberUpdatedState(onClick)
+    this.onSizeChanged { sz = it }
+        .graphicsLayer {
+            val nx = if (sz.width > 0) (touch.x / sz.width - 0.5f) * 2f else 0f
+            val ny = if (sz.height > 0) (touch.y / sz.height - 0.5f) * 2f else 0f
+            val maxDeg = if (sz.width > 600) 4f else 10f
+            rotationY = -nx * maxDeg * p
+            rotationX = ny * maxDeg * p
+            val sc = 1f - 0.035f * p; scaleX = sc; scaleY = sc
+            cameraDistance = 14f * density
+        }
+        .pointerInput(Unit) {
+            detectTapGestures(onPress = { o -> touch = o; pressed = true; tryAwaitRelease(); pressed = false }, onTap = { click() })
+        }
+}
+
+/** Windows Phone "feather" entrance: items slide in from the right one after another. */
+@Composable
+fun Modifier.feather(i: Int, enabled: Boolean): Modifier {
+    if (!enabled || i > 14) return this
+    val a = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { delay(i * 35L); a.animateTo(1f, tween(420, easing = WpEase)) }
+    return this.graphicsLayer { alpha = a.value; translationX = (1f - a.value) * 90.dp.toPx() }
+}
+
+@Composable
+fun rememberIntro(): Boolean {
+    var on by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) { delay(900); on = false }
+    return on
+}
+
+@Composable
+fun TintBackground(accent: Color, strength: Float = 0.38f) {
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        0f to accent.copy(alpha = strength), 0.45f to accent.copy(alpha = strength * 0.25f), 1f to Color.Black)))
+}
+
 sealed interface Screen {
     data object Home : Screen
     data object Playing : Screen
@@ -73,7 +135,7 @@ sealed interface Screen {
 @Composable
 fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     var accentInt by remember { mutableIntStateOf(prefs.accent) }
-    val accent = Color(accentInt)
+    val accent by animateColorAsState(Color(accentInt), tween(500), label = "accent")
     val perms = remember {
         buildList {
             add(if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -84,20 +146,31 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     LaunchedEffect(Unit) { permLauncher.launch(perms) }
 
     var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
-    val open: (Screen) -> Unit = { stack = stack + it }
-    BackHandler(stack.size > 1) { stack = stack.dropLast(1) }
+    var forward by remember { mutableStateOf(true) }
+    val open: (Screen) -> Unit = { forward = true; stack = stack + it }
+    BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
 
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AnimatedContent(
                 targetState = stack.last(),
-                transitionSpec = { (fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 5 }) togetherWith fadeOut(tween(120)) },
+                transitionSpec = { fadeIn(tween(160, delayMillis = 140)) togetherWith fadeOut(tween(140)) },
                 label = "nav"
             ) { s ->
+                // Windows Phone turnstile: pages swing on their left edge like a door
+                val dir = if (forward) 1f else -1f
+                val rot by transition.animateFloat(
+                    transitionSpec = { tween(if (targetState == EnterExitState.Visible) 420 else 160, easing = WpEase) },
+                    label = "turnstile"
+                ) { when (it) { EnterExitState.PreEnter -> -70f * dir; EnterExitState.Visible -> 0f; EnterExitState.PostExit -> 70f * dir } }
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    rotationY = rot; transformOrigin = TransformOrigin(0f, 0.5f); cameraDistance = 18f * density
+                }) {
                 when (s) {
                     Screen.Home -> HomeScreen(vm, conn, prefs, accent, { accentInt = it; prefs.accent = it }, open) { permLauncher.launch(perms) }
                     Screen.Playing -> NowPlayingScreen(vm, conn, prefs, accent)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
+                }
                 }
             }
         }
@@ -117,11 +190,20 @@ fun HomeScreen(
     val songs = vm.songs.value
     val play: (List<Song>, Int) -> Unit = { l, i -> conn.playSongs(l, i); open(Screen.Playing) }
 
+    val pos = pager.currentPage + pager.currentPageOffsetFraction
+    Box(Modifier.fillMaxSize()) {
+    TintBackground(accent)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-        Text("GROVE MUSIC", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.sp, modifier = Modifier.padding(start = 20.dp, top = 14.dp))
-        PivotHeaders(pages, pager.currentPage) { scope.launch { pager.animateScrollToPage(it) } }
-        HorizontalPager(pager, Modifier.weight(1f)) { p ->
+        // panorama title: huge, light, lowercase, slides slower than the content (parallax)
+        Box(Modifier.fillMaxWidth().clipToBounds()) {
+            Text("grove music", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
+                maxLines = 1, softWrap = false,
+                modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
+                    .graphicsLayer { translationX = -pos * 70.dp.toPx() }
+                    .padding(start = 12.dp, top = 4.dp))
+        }
+        PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
+        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
             when (pages[p]) {
                 "songs" -> SongsPage(songs, accent, vm.loading.value, askPerms, onShuffle = {
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
@@ -140,19 +222,29 @@ fun HomeScreen(
         }
         if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
     }
+    }
 }
 
+/** Pivot headers that glide with the finger, exactly in step with the pager. */
 @Composable
-fun PivotHeaders(pages: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    val state = rememberLazyListState()
-    LaunchedEffect(selected) { state.animateScrollToItem(selected) }
-    LazyRow(state = state, contentPadding = PaddingValues(start = 16.dp), userScrollEnabled = false) {
-        itemsIndexed(pages) { i, name ->
-            Text(name, fontSize = 50.sp, fontWeight = FontWeight.Light,
-                color = if (i == selected) White else White.copy(alpha = 0.3f),
-                modifier = Modifier.clickable { onSelect(i) }.padding(end = 20.dp, bottom = 6.dp))
+fun PivotHeaders(pages: List<String>, pos: Float, accent: Color, onSelect: (Int) -> Unit) {
+    val widths = remember { mutableStateListOf<Float>().apply { repeat(pages.size) { add(0f) } } }
+    Box(Modifier.fillMaxWidth().clipToBounds()) {
+        Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
+            .graphicsLayer {
+                val i = pos.toInt().coerceIn(0, pages.lastIndex)
+                val f = pos - i
+                translationX = -(widths.take(i).sum() + widths.getOrElse(i) { 0f } * f)
+            }
+            .padding(start = 18.dp)) {
+            pages.forEachIndexed { i, name ->
+                val a = (1f - abs(pos - i)).coerceIn(0f, 1f)
+                Text(name, fontSize = 46.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
+                    color = lerp(accent.copy(alpha = 0.55f), White, a),
+                    modifier = Modifier.onSizeChanged { widths[i] = it.width.toFloat() }
+                        .clickable { onSelect(i) }.padding(end = 22.dp, bottom = 4.dp))
+            }
         }
-        item { Spacer(Modifier.width(600.dp)) }
     }
 }
 
@@ -167,7 +259,7 @@ fun LetterTile(c: Char, accent: Color) {
 
 @Composable
 fun SongRow(title: String, sub: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().tilt(onClick).padding(vertical = 8.dp)) {
         Text(title, color = White, fontSize = 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(sub, color = Dim, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -188,14 +280,17 @@ fun SongsPage(songs: List<Song>, accent: Color, loading: Boolean, askPerms: () -
         EmptyMsg(if (loading) "loading your music…" else "no music found", if (loading) null else "allow access / rescan", askPerms)
         return
     }
+    val intro = rememberIntro()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item { Text("shuffle all (${songs.size})", color = accent, fontSize = 20.sp,
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onShuffle).padding(vertical = 8.dp)) }
+            modifier = Modifier.feather(0, intro).fillMaxWidth().tilt(onShuffle).padding(vertical = 8.dp)) }
         var prev: Char? = null
+        var n = 1
         songs.forEachIndexed { i, s ->
             val c = letterOf(s.title)
-            if (c != prev) { prev = c; item(key = "h$i") { LetterTile(c, accent) } }
-            item(key = s.id) { SongRow(s.title, "${s.artist} · ${s.format}") { onPlay(i) } }
+            if (c != prev) { prev = c; val k = n++; item(key = "h$i") { Box(Modifier.feather(k, intro)) { LetterTile(c, accent) } } }
+            val k = n++
+            item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.format}") { onPlay(i) } } }
         }
     }
 }
@@ -204,15 +299,18 @@ fun SongsPage(songs: List<Song>, accent: Color, loading: Boolean, askPerms: () -
 fun GroupPage(groups: Map<String, List<Song>>, accent: Color, onOpen: (String, List<Song>) -> Unit) {
     val keys = remember(groups) { groups.keys.sortedBy { it.lowercase() } }
     if (keys.isEmpty()) { EmptyMsg("nothing here yet"); return }
+    val intro = rememberIntro()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         var prev: Char? = null
+        var n = 0
         keys.forEachIndexed { i, k ->
             val c = letterOf(k)
-            if (c != prev) { prev = c; item(key = "h$i") { LetterTile(c, accent) } }
+            if (c != prev) { prev = c; val j = n++; item(key = "h$i") { Box(Modifier.feather(j, intro)) { LetterTile(c, accent) } } }
+            val j = n++
             item(key = "k$k") {
                 Text(k.lowercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light, maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().clickable { onOpen(k, groups.getValue(k)) }.padding(vertical = 6.dp))
+                    modifier = Modifier.feather(j, intro).fillMaxWidth().tilt { onOpen(k, groups.getValue(k)) }.padding(vertical = 6.dp))
             }
         }
     }
@@ -222,9 +320,10 @@ fun GroupPage(groups: Map<String, List<Song>>, accent: Color, onOpen: (String, L
 fun AlbumsPage(songs: List<Song>, accent: Color, onOpen: (List<Song>) -> Unit) {
     val albums = remember(songs) { songs.groupBy { it.albumId }.values.sortedBy { it[0].album.lowercase() } }
     if (albums.isEmpty()) { EmptyMsg("nothing here yet"); return }
+    val intro = rememberIntro()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-        itemsIndexed(albums, key = { _, l -> l[0].albumId }) { _, list ->
-            Row(Modifier.fillMaxWidth().clickable { onOpen(list) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        itemsIndexed(albums, key = { _, l -> l[0].albumId }) { i, list ->
+            Row(Modifier.feather(i, intro).fillMaxWidth().tilt { onOpen(list) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Art(list[0].artUri, accent, Modifier.size(76.dp))
                 Column(Modifier.padding(start = 14.dp)) {
                     Text(list[0].album.lowercase(), color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -253,7 +352,7 @@ fun SettingsPage(prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: (
                 row.forEach { c ->
                     Box(Modifier.size(56.dp).background(Color(c))
                         .then(if (Color(c) == accent) Modifier.border(3.dp, White) else Modifier)
-                        .clickable { onAccent(c) })
+                        .tilt { onAccent(c) })
                 }
             }
         }
@@ -274,7 +373,7 @@ fun SettingsPage(prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: (
 
 @Composable
 fun SettingItem(title: String, sub: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp)) {
+    Column(Modifier.fillMaxWidth().tilt(onClick).padding(vertical = 10.dp)) {
         Text(title, color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
         Text(sub, color = Dim, fontSize = 14.sp)
     }
@@ -291,7 +390,7 @@ fun Art(uri: Uri?, accent: Color, modifier: Modifier) {
 @Composable
 fun MiniPlayer(conn: PlayerConnection, accent: Color, onOpen: () -> Unit) {
     val md = conn.current.value?.mediaMetadata ?: return
-    Row(Modifier.fillMaxWidth().background(Color(0xFF1C1C1C)).clickable(onClick = onOpen).padding(8.dp),
+    Row(Modifier.fillMaxWidth().background(Color(0xFF0E0E0E)).background(accent.copy(alpha = 0.30f)).tilt(onOpen).padding(8.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Art(md.artworkUri, accent, Modifier.size(48.dp))
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
@@ -307,6 +406,9 @@ fun MiniPlayer(conn: PlayerConnection, accent: Color, onOpen: () -> Unit) {
 
 @Composable
 fun DetailScreen(d: Screen.Detail, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    val intro = rememberIntro()
+    Box(Modifier.fillMaxSize()) {
+    TintBackground(accent, 0.30f)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Text(d.sub.uppercase(), color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(start = 20.dp, top = 14.dp))
@@ -315,13 +417,16 @@ fun DetailScreen(d: Screen.Detail, conn: PlayerConnection, accent: Color, open: 
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             item {
                 Text("play all", color = accent, fontSize = 20.sp,
-                    modifier = Modifier.fillMaxWidth().clickable { conn.playSongs(d.songs, 0); open(Screen.Playing) }.padding(vertical = 10.dp))
+                    modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { conn.playSongs(d.songs, 0); open(Screen.Playing) }.padding(vertical = 10.dp))
             }
             itemsIndexed(d.songs, key = { _, s -> s.id }) { i, s ->
-                SongRow(s.title, "${s.album} · ${s.format}") { conn.playSongs(d.songs, i); open(Screen.Playing) }
+                Box(Modifier.feather(i + 1, intro)) {
+                    SongRow(s.title, "${s.album} · ${s.format}") { conn.playSongs(d.songs, i); open(Screen.Playing) }
+                }
             }
         }
         if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
+    }
     }
 }
 
@@ -361,6 +466,15 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     }
     val format = song?.format ?: md.extras?.getString("fmt").orEmpty()
 
+    Box(Modifier.fillMaxSize()) {
+    AnimatedContent(md.artworkUri, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "bg") { u ->
+        Box(Modifier.fillMaxSize()) {
+            if (u != null) AsyncImage(model = u, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(48.dp).graphicsLayer { alpha = 0.45f })
+        }
+    }
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+        0f to accent.copy(alpha = 0.45f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f))))
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
         Text((md.artist ?: "unknown artist").toString().lowercase(), color = White, fontSize = 54.sp,
             fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
@@ -373,14 +487,21 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 LyricsView(lyrics, lyricsLoading, pos, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
             } else {
                 var dx by remember { mutableFloatStateOf(0f) }
-                Art(md.artworkUri, accent, Modifier.aspectRatio(1f)
-                    .pointerInput(Unit) { detectTapGestures { showLyrics = true } }
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { dx = 0f },
-                            onDragEnd = { if (dx < -120) conn.next() else if (dx > 120) conn.prev() }
-                        ) { _, d -> dx += d }
-                    })
+                val follow by animateFloatAsState(dx, if (dx == 0f) tween(380, easing = WpEase) else tween(0), label = "swipe")
+                AnimatedContent(item.mediaId, transitionSpec = {
+                    (fadeIn(tween(300)) + slideInHorizontally(tween(420, easing = WpEase)) { it / 3 }) togetherWith fadeOut(tween(150))
+                }, label = "art") { _ ->
+                    Art(md.artworkUri, accent, Modifier.aspectRatio(1f)
+                        .graphicsLayer { translationX = follow * 0.6f; rotationY = follow / 40f; cameraDistance = 14f * density }
+                        .tilt { showLyrics = true }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { dx = 0f },
+                                onDragCancel = { dx = 0f },
+                                onDragEnd = { if (dx < -120) conn.next() else if (dx > 120) conn.prev(); dx = 0f }
+                            ) { _, d -> dx += d }
+                        })
+                }
             }
         }
 
@@ -412,7 +533,8 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
         }
         Text(if (showLyrics) "album art" else "lyrics", color = if (showLyrics) accent else White, fontSize = 16.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showLyrics = !showLyrics }.padding(12.dp))
+            modifier = Modifier.align(Alignment.CenterHorizontally).tilt { showLyrics = !showLyrics }.padding(12.dp))
+    }
     }
 }
 
@@ -477,7 +599,7 @@ fun SeekBar(pos: Long, dur: Long, accent: Color, onSeek: (Long) -> Unit) {
 
 @Composable
 fun CircleButton(icon: ImageVector, size: Dp, onClick: () -> Unit) {
-    Box(Modifier.size(size).clip(CircleShape).border(2.5.dp, White, CircleShape).clickable(onClick = onClick),
+    Box(Modifier.size(size).tilt(onClick).clip(CircleShape).border(2.5.dp, White, CircleShape),
         contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = White, modifier = Modifier.size(size * 0.5f))
     }
@@ -485,7 +607,7 @@ fun CircleButton(icon: ImageVector, size: Dp, onClick: () -> Unit) {
 
 @Composable
 fun ToggleIcon(icon: ImageVector, on: Boolean, accent: Color, onClick: () -> Unit) {
-    Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(44.dp).tilt(onClick).clip(CircleShape), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = if (on) accent else Dim, modifier = Modifier.size(26.dp))
     }
 }
