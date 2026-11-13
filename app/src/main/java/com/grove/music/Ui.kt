@@ -538,6 +538,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     LaunchedEffect(artistName) { if (liveTiles) artistInfo = ArtistRepository.load(ctx, artistName) }
 
     Box(Modifier.fillMaxSize()) {
+    if (liveTiles) TintBackground(accent, 0.22f) else {
     AnimatedContent(md.artworkUri, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "bg") { u ->
         Box(Modifier.fillMaxSize()) {
             if (u != null) AsyncImage(model = u, contentDescription = null, contentScale = ContentScale.Crop,
@@ -546,7 +547,18 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     }
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
         0f to accent.copy(alpha = 0.45f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f))))
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
+    }
+    val tileDark = lerp(accent, Color.Black, 0.78f)
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = if (liveTiles) 12.dp else 20.dp)) {
+        if (liveTiles) {
+            // Start-screen style header: small caps label, song title in light lowercase
+            Text("NOW PLAYING", color = White.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.sp, modifier = Modifier.padding(top = 12.dp, start = 2.dp))
+            SlideText(md.title?.toString().orEmpty(), dir) { t ->
+                Text(t.lowercase(), color = White, fontSize = 34.sp, fontWeight = FontWeight.Light, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, bottom = 10.dp))
+            }
+        } else
         SlideText(artistName to (md.albumTitle ?: "").toString(), dir) { (a, al) ->
             Column {
                 Text(a.lowercase(), color = White, fontSize = 54.sp,
@@ -556,7 +568,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 Text(al.lowercase(), color = Dim, fontSize = 18.sp, maxLines = 1)
             }
         }
-        Spacer(Modifier.height(14.dp))
+        if (!liveTiles) Spacer(Modifier.height(14.dp))
 
         // album art (or live tiles) on the front, lyrics on the back — flips like a Windows Phone tile
         val flip by animateFloatAsState(if (showLyrics) 180f else 0f, tween(650, easing = WpEase), label = "flip")
@@ -575,6 +587,26 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             }
         }
 
+        if (liveTiles) {
+            Spacer(Modifier.height(8.dp))
+            // progress tile
+            Column(Modifier.fillMaxWidth().background(tileDark).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                SeekBar(posS, durS, accent, conn::seekTo)
+                TimeRow(posS, durS)
+            }
+            Spacer(Modifier.height(8.dp))
+            // control tiles
+            Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ControlTile(Icons.Rounded.Shuffle, if (conn.shuffle.value) accent else tileDark, Modifier.weight(1f)) { conn.toggleShuffle() }
+                ControlTile(Icons.Rounded.SkipPrevious, tileDark, Modifier.weight(1f)) { goPrev() }
+                ControlTile(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, accent, Modifier.weight(1.4f)) { conn.playPause() }
+                ControlTile(Icons.Rounded.SkipNext, tileDark, Modifier.weight(1f)) { goNext() }
+                ControlTile(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    if (conn.repeatMode.intValue != Player.REPEAT_MODE_OFF) accent else tileDark, Modifier.weight(1f)) { conn.cycleRepeat() }
+            }
+            Text(if (showLyrics) "tiles" else "lyrics", color = if (showLyrics) accent else White.copy(alpha = 0.8f), fontSize = 14.sp,
+                modifier = Modifier.align(Alignment.End).tilt { showLyrics = !showLyrics }.padding(horizontal = 4.dp, vertical = 10.dp))
+        } else {
         Spacer(Modifier.height(10.dp))
         SeekBar(posS, durS, accent, conn::seekTo)
         TimeRow(posS, durS)
@@ -602,7 +634,15 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         }
         Text(if (showLyrics) (if (liveTiles) "tiles" else "album art") else "lyrics", color = if (showLyrics) accent else White, fontSize = 16.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally).tilt { showLyrics = !showLyrics }.padding(12.dp))
+        }
     }
+    }
+}
+
+@Composable
+fun ControlTile(icon: ImageVector, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.fillMaxHeight().tilt(onClick).background(color), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = White, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -891,7 +931,7 @@ fun TileGrid(md: androidx.media3.common.MediaMetadata, song: Song?, artist: Stri
     val others = remember(artist, vm.songs.value) {
         vm.songs.value.filter { it.artist == artist && it.albumId != song?.albumId }.distinctBy { it.albumId }.take(2)
     }
-    val dark = lerp(accent, Color.Black, 0.35f)
+    val dark = lerp(accent, Color.Black, 0.55f)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gap = 8.dp
         val u = minOf((maxWidth - gap * 3) / 4, (maxHeight - gap * 2) / 3)
