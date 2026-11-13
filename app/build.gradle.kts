@@ -11,15 +11,26 @@ android {
         applicationId = "com.grove.music"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        // every CI build gets a higher version so it installs as an update
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "1.$build"
+    }
+    // one fixed key for every build, so new APKs update the installed app instead of needing a reinstall
+    signingConfigs {
+        create("grove") {
+            storeFile = file("grove.jks")
+            storePassword = "grovemusic"
+            keyAlias = "grove"
+            keyPassword = "grovemusic"
+        }
     }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("grove")
         }
     }
     compileOptions {
