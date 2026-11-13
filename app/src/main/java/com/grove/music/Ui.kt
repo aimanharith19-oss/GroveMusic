@@ -427,20 +427,41 @@ fun Art(uri: Uri?, accent: Color, modifier: Modifier) {
     }
 }
 
+/** Windows Phone style "now playing" app bar: thin accent progress line, square art,
+ *  light lowercase text that slides on song change, and outlined round app-bar buttons. */
 @Composable
 fun MiniPlayer(conn: PlayerConnection, accent: Color, onOpen: () -> Unit) {
     val md = conn.current.value?.mediaMetadata ?: return
-    Row(Modifier.fillMaxWidth().background(Color(0xFF0E0E0E)).background(accent.copy(alpha = 0.30f)).tilt(onOpen).padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Art(md.artworkUri, accent, Modifier.size(48.dp))
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(md.title?.toString().orEmpty(), color = White, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(md.artist?.toString().orEmpty(), color = Dim, fontSize = 13.sp, maxLines = 1)
+    val prog = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        while (true) { val d = conn.duration(); prog.floatValue = if (d > 0) conn.position().toFloat() / d else 0f; delay(250) }
+    }
+    Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.88f))) {
+        Canvas(Modifier.fillMaxWidth().height(2.dp)) {
+            drawRect(Color.White.copy(alpha = 0.12f))
+            drawRect(accent, size = size.copy(width = size.width * prog.floatValue))
         }
-        IconButton({ conn.playPause() }) {
-            Icon(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "play/pause", tint = White)
+        Row(Modifier.fillMaxWidth().tilt(onOpen).padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Art(md.artworkUri, accent, Modifier.size(46.dp))
+            Box(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                SlideText(md.title?.toString().orEmpty() to md.artist?.toString().orEmpty(), 1) { (t, a) ->
+                    Column {
+                        Text(t.lowercase(), color = White, fontSize = 19.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(a.uppercase(), color = accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            AppBarButton(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow) { conn.playPause() }
+            AppBarButton(Icons.Rounded.SkipNext) { conn.next() }
         }
-        IconButton({ conn.next() }) { Icon(Icons.Rounded.SkipNext, "next", tint = White) }
+    }
+}
+
+@Composable
+fun AppBarButton(icon: ImageVector, onClick: () -> Unit) {
+    Box(Modifier.padding(horizontal = 4.dp).size(38.dp).tilt(onClick).border(1.5.dp, White, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = White, modifier = Modifier.size(20.dp))
     }
 }
 
