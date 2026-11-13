@@ -220,13 +220,36 @@ class Prefs(ctx: Context) {
     fun setLyricsFor(id: String, uri: String) = sp.edit().putString("lrc_$id", uri).apply()
 }
 
-/** Library as the user sees it: hidden folders removed, and only the FLAC copy when one exists. */
-fun visibleSongs(all: List<Song>, hidden: Set<String>, preferFlac: Boolean): List<Song> {
-    var list = if (hidden.isEmpty()) all else all.filter { it.folder !in hidden }
-    if (preferFlac) {
-        fun k(s: Song) = ArtistRepository.norm(s.title) + "|" + ArtistRepository.norm(s.artist)
-        val flac = list.filter { FlacConverter.isFlac(it) }.map { k(it) }.toHashSet()
-        list = list.filter { FlacConverter.isFlac(it) || k(it) !in flac }
+/** Library as the user sees it: hidden folders removed and, when [dedupe] is on, one copy per song
+ *  (same title + artist and length within a few seconds) — the best-quality one is kept. */
+fun visibleSongs(all: List<Song>, hidden: Set<String>, dedupe: Boolean): List<Song> {
+    val list = if (hidden.isEmpty()) all else all.filter { it.folder !in hidden }
+    if (!dedupe) return list
+    val keep = ArrayList<Song>(list.size)
+    list.groupBy { ArtistRepository.norm(it.title) + "|" + ArtistRepository.norm(ArtistRepository.primary(it.artist)) }
+        .forEach { (_, group) ->
+            if (group.size == 1) { keep += group[0]; return@forEach }
+            // split by length so a live/extended version with the same name isn't hidden
+            val clusters = ArrayList<MutableList<Song>>()
+            for (s in group.sortedBy { it.duration }) {
+                val c = clusters.lastOrNull()
+                if (c != null && s.duration - c.first().duration <= 5000) c += s else clusters += mutableListOf(s)
+            }
+            clusters.forEach { c -> keep += c.maxBy { quality(it) } }
+        }
+    val ids = keep.map { it.id }.toHashSet()
+    return list.filter { it.id in ids } // keep original order
+}
+
+/** lossless first, then the highest bitrate (file size ÷ length) */
+fun quality(s: Song): Double {
+    val m = (s.mime.orEmpty() + " " + s.displayName.substringAfterLast('.', "")).lowercase()
+    val tier = when {
+        listOf("flac", "wav", "alac", "ape", "aiff", "dsd", "dsf").any { m.contains(it) } -> 3
+        listOf("opus", "ogg", "vorbis", "m4a", "aac", "mp4").any { m.contains(it) } -> 2
+        else -> 1
     }
-    return list
+    val size = runCatching { s.path?.let { java.io.File(it).length() } ?: 0L }.getOrDefault(0L)
+    val kbps = if (s.duration > 0) size * 8.0 / s.duration else 0.0
+    return tier * 1_000_000.0 + kbps
 }

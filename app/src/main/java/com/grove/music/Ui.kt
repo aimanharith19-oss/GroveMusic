@@ -815,8 +815,8 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("show only FLAC copies", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                Text("hide the original when a FLAC version exists", color = Dim, fontSize = 14.sp)
+                Text("hide duplicate songs", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("same song in several files or formats — show only the best quality one", color = Dim, fontSize = 14.sp)
             }
             Switch(vm.preferFlac.value, { vm.setPreferFlac(it) },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
