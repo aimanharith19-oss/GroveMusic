@@ -168,6 +168,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
         buildList {
             add(if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+            if (Build.VERSION.SDK_INT < 29) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }.toTypedArray()
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.load() }
@@ -212,7 +213,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
             }
             AnimatedVisibility(addTarget != null, modifier = Modifier.align(Alignment.BottomCenter),
                 enter = slideInVertically(tween(380, easing = WpEase)) { it }, exit = slideOutVertically(tween(260, easing = WpEase)) { it }) {
-                AddToPlaylistSheet(vm.playlists, addTarget ?: emptyList(), accent) { addTarget = null }
+                AddToPlaylistSheet(vm, addTarget ?: emptyList(), accent) { addTarget = null }
             }
         }
         }
@@ -221,7 +222,8 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
 
 /** Bottom sheet: pick a playlist (or make a new one) for the given songs. */
 @Composable
-fun AddToPlaylistSheet(store: PlaylistStore, songs: List<Long>, accent: Color, onDone: () -> Unit) {
+fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onDone: () -> Unit) {
+    val store = vm.playlists
     var naming by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     val ctx = LocalContext.current
@@ -231,6 +233,18 @@ fun AddToPlaylistSheet(store: PlaylistStore, songs: List<Long>, accent: Color, o
         Text("add to playlist", color = White, fontSize = 34.sp, fontWeight = FontWeight.Light)
         Text(if (songs.size == 1) "1 song" else "${songs.size} songs", color = White.copy(alpha = 0.7f), fontSize = 13.sp,
             modifier = Modifier.padding(bottom = 8.dp))
+        val toConvert = remember(songs) { vm.needingFlac(songs.mapNotNull { vm.song(it.toString()) }) }
+        if (!naming && toConvert.isNotEmpty() && vm.flacJob.value == null) {
+            Row(Modifier.fillMaxWidth().tilt {
+                vm.convertToFlac(toConvert)
+                android.widget.Toast.makeText(ctx, "converting to FLAC…", android.widget.Toast.LENGTH_SHORT).show(); onDone()
+            }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).background(Color.White), contentAlignment = Alignment.Center) {
+                    Text("FLAC", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                Text("convert to FLAC", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+            }
+        }
         if (naming) {
             OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("playlist name") },
                 modifier = Modifier.fillMaxWidth(),
@@ -653,6 +667,31 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 Text("download synced lyrics from lrclib.net", color = Dim, fontSize = 14.sp)
             }
             Switch(online, { online = it; prefs.onlineLyrics = it },
+                colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
+        // ── FLAC
+        Text("flac", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
+        val job = vm.flacJob.value
+        val need = remember(vm.songs.value, job) { vm.needingFlac(vm.songs.value).size }
+        if (job != null) {
+            Text("converting ${job.first + 1} of ${job.second}: ${job.third}", color = White, fontSize = 15.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            val sp = vm.flacSongProgress
+            Canvas(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(4.dp)) {
+                val f = (job.first + sp.floatValue) / job.second
+                drawRect(Color.White.copy(alpha = 0.15f)); drawRect(accent, size = size.copy(width = size.width * f))
+            }
+            Text("keep Grove open while it converts", color = Dim, fontSize = 13.sp)
+        } else {
+            SettingItem("convert library to FLAC", if (need == 0) "every song already has a FLAC version"
+                else "$need songs · saved to Music/${FlacConverter.FOLDER} with tags and cover art") { vm.convertToFlac(vm.songs.value) }
+        }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("show only FLAC copies", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("hide the original when a FLAC version exists", color = Dim, fontSize = 14.sp)
+            }
+            Switch(vm.preferFlac.value, { vm.setPreferFlac(it) },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
         SettingItem("rescan library", "look for new music on this phone", rescan)

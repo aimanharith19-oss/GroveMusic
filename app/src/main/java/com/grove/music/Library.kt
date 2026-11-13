@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -125,6 +126,41 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         ArtistRepository.syncAll(getApplication(), names) { artistTick.intValue++ }
     }
 
+    /** (done, total, current song title) while converting to FLAC, null when idle */
+    val flacJob = mutableStateOf<Triple<Int, Int, String>?>(null)
+    val flacSongProgress = androidx.compose.runtime.mutableFloatStateOf(0f)
+    val preferFlac = mutableStateOf(prefs.preferFlac)
+
+    private fun sameKey(s: Song) = ArtistRepository.norm(s.title) + "|" + ArtistRepository.norm(s.artist)
+
+    /** Songs that still need a FLAC copy. */
+    fun needingFlac(list: List<Song>): List<Song> {
+        val have = all.filter { FlacConverter.isFlac(it) }.map { sameKey(it) }.toHashSet()
+        return list.filter { !FlacConverter.isFlac(it) && sameKey(it) !in have }
+    }
+
+    fun convertToFlac(list: List<Song>) {
+        if (flacJob.value != null) return
+        val todo = needingFlac(list)
+        if (todo.isEmpty()) return
+        viewModelScope.launch {
+            var done = 0
+            withContext(Dispatchers.Default) {
+                for (s in todo) {
+                    flacJob.value = Triple(done, todo.size, s.title)
+                    flacSongProgress.floatValue = 0f
+                    FlacConverter.convert(getApplication(), s) { flacSongProgress.floatValue = it }
+                    done++
+                }
+            }
+            flacJob.value = null
+            delay(1500) // let the media scanner index the new files
+            load()
+        }
+    }
+
+    fun setPreferFlac(on: Boolean) { preferFlac.value = on; prefs.preferFlac = on; apply() }
+
     fun setHidden(folder: String, hide: Boolean) {
         val h = if (hide) hidden.value + folder else hidden.value - folder
         hidden.value = h; prefs.hiddenFolders = h; apply()
@@ -132,7 +168,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun apply() {
         val h = hidden.value
-        songs.value = if (h.isEmpty()) all else all.filter { it.folder !in h }
+        var list = if (h.isEmpty()) all else all.filter { it.folder !in h }
+        if (preferFlac.value) {
+            // when a FLAC copy exists, show only the FLAC version of that song
+            val flac = list.filter { FlacConverter.isFlac(it) }.map { sameKey(it) }.toHashSet()
+            list = list.filter { FlacConverter.isFlac(it) || sameKey(it) !in flac }
+        }
+        songs.value = list
     }
 }
 
@@ -152,6 +194,9 @@ class Prefs(ctx: Context) {
     fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
     fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
         sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
+    var preferFlac: Boolean
+        get() = sp.getBoolean("prefer_flac", true)
+        set(v) = sp.edit().putBoolean("prefer_flac", v).apply()
     var liveTiles: Boolean
         get() = sp.getBoolean("live_tiles", false)
         set(v) = sp.edit().putBoolean("live_tiles", v).apply()
