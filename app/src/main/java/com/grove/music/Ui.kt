@@ -36,6 +36,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -56,6 +57,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -209,6 +216,8 @@ fun HomeScreen(
 
     // read only inside graphicsLayer, so swiping never recomposes the screen (smooth at 90/120 Hz)
     val pos: () -> Float = { pager.currentPage + pager.currentPageOffsetFraction }
+    var menu by remember { mutableStateOf(false) }
+    BackHandler(menu) { menu = false }
     Box(Modifier.fillMaxSize()) {
     TintBackground(accent)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -218,10 +227,7 @@ fun HomeScreen(
                 maxLines = 1, softWrap = false,
                 modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
                     .graphicsLayer { translationX = -pos() * 70.dp.toPx() }
-                    .padding(start = 12.dp, top = 4.dp, end = 60.dp))
-            Icon(Icons.Rounded.Settings, "settings", tint = White.copy(alpha = 0.85f),
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp).size(40.dp)
-                    .clip(CircleShape).tilt { open(Screen.Settings) }.padding(8.dp))
+                    .padding(start = 12.dp, top = 4.dp))
         }
         PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
         HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
@@ -229,14 +235,42 @@ fun HomeScreen(
                 "songs" -> SongsPage(songs, accent, vm.loading.value, askPerms, onShuffle = {
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
-                "artists" -> GroupPage(songs.groupBy { it.artist }, accent) { name, _ -> open(Screen.Artist(name)) }
+                "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
                 }
             }
         }
-        if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
+        if (conn.current.value != null) MiniPlayer(conn, accent, onMore = { menu = !menu }) { open(Screen.Playing) }
+        else AppBar(accent) { menu = !menu }
     }
+    // Windows Phone app-bar menu: slides up from the bottom when "•••" is tapped
+    AnimatedVisibility(menu, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).pointerInput(Unit) { detectTapGestures { menu = false } })
+    }
+    AnimatedVisibility(menu, modifier = Modifier.align(Alignment.BottomCenter),
+        enter = slideInVertically(tween(380, easing = WpEase)) { it }, exit = slideOutVertically(tween(260, easing = WpEase)) { it }) {
+        Column(Modifier.fillMaxWidth().background(lerp(accent, Color.Black, 0.62f)).navigationBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 18.dp)) {
+            listOf(
+                "shuffle all" to { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) },
+                "rescan library" to { vm.load(); Unit },
+                "settings" to { open(Screen.Settings) },
+            ).forEach { (label, act) ->
+                Text(label, color = White, fontSize = 24.sp, fontWeight = FontWeight.Light,
+                    modifier = Modifier.fillMaxWidth().tilt { menu = false; act() }.padding(vertical = 9.dp))
+            }
+        }
+    }
+    }
+}
+
+/** Minimised Windows Phone application bar: just the "•••" at the right. */
+@Composable
+fun AppBar(accent: Color, onMore: () -> Unit) {
+    Row(Modifier.fillMaxWidth().height(36.dp).background(Color.Black.copy(alpha = 0.55f)).background(accent.copy(alpha = 0.12f))
+        .tilt(onMore), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.MoreHoriz, "more", tint = White, modifier = Modifier.padding(end = 18.dp).size(26.dp))
     }
 }
 
@@ -326,6 +360,44 @@ fun GroupPage(groups: Map<String, List<Song>>, accent: Color, onOpen: (String, L
                 Text(k.lowercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light, maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.feather(j, intro).fillMaxWidth().tilt { onOpen(k, groups.getValue(k)) }.padding(vertical = 6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (String) -> Unit) {
+    // one entry per main artist: "A feat. B", "A, B", "a" all go under A
+    val groups = remember(songs) {
+        songs.groupBy { ArtistRepository.key(ArtistRepository.primary(it.artist)) }.map { (_, l) ->
+            val name = l.map { ArtistRepository.primary(it.artist) }.groupingBy { it }.eachCount().maxBy { it.value }.key
+            name to l.size
+        }.sortedBy { it.first.lowercase() }
+    }
+    if (groups.isEmpty()) { EmptyMsg("nothing here yet"); return }
+    val ctx = LocalContext.current
+    val tick = vm.artistTick.intValue
+    val intro = rememberIntro()
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        var prev: Char? = null
+        var n = 0
+        groups.forEachIndexed { i, (name, count) ->
+            val c = letterOf(name)
+            if (c != prev) { prev = c; val j = n++; item(key = "h$i") { Box(Modifier.feather(j, intro)) { LetterTile(c, accent) } } }
+            val j = n++
+            item(key = "a$name") {
+                val info = remember(name, tick) { ArtistRepository.cached(ctx, name) }
+                Row(Modifier.feather(j, intro).fillMaxWidth().tilt { onOpen(name) }.padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(58.dp).background(lerp(accent, Color.Black, 0.35f)), contentAlignment = Alignment.Center) {
+                        Text(name.take(1).lowercase(), color = White, fontSize = 26.sp, fontWeight = FontWeight.Light)
+                        if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    }
+                    Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                        Text(name.lowercase(), color = White, fontSize = 25.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("$count ${if (count == 1) "song" else "songs"}", color = Dim, fontSize = 13.sp)
+                    }
+                }
             }
         }
     }
@@ -426,7 +498,7 @@ fun Art(uri: Uri?, accent: Color, modifier: Modifier) {
 /** Windows Phone style "now playing" app bar: thin accent progress line, square art,
  *  light lowercase text that slides on song change, and outlined round app-bar buttons. */
 @Composable
-fun MiniPlayer(conn: PlayerConnection, accent: Color, onOpen: () -> Unit) {
+fun MiniPlayer(conn: PlayerConnection, accent: Color, onMore: (() -> Unit)? = null, onOpen: () -> Unit) {
     val md = conn.current.value?.mediaMetadata ?: return
     val prog = remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
@@ -450,6 +522,8 @@ fun MiniPlayer(conn: PlayerConnection, accent: Color, onOpen: () -> Unit) {
             }
             AppBarButton(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow) { conn.playPause() }
             AppBarButton(Icons.Rounded.SkipNext) { conn.next() }
+            if (onMore != null) Icon(Icons.Rounded.MoreHoriz, "more", tint = White,
+                modifier = Modifier.padding(start = 2.dp).size(38.dp).clip(CircleShape).tilt(onMore).padding(6.dp))
         }
     }
 }
@@ -624,7 +698,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             SeekBar(posS, durS, accent, conn::seekTo)
             TimeRow(posS, durS)
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 ToggleIcon(Icons.Rounded.Shuffle, conn.shuffle.value, accent) { conn.toggleShuffle() }
                 CircleButton(Icons.Rounded.SkipPrevious, 58.dp) { goPrev() }
                 PlayButton(conn.isPlaying.value, accent) { conn.playPause() }
@@ -632,33 +706,9 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 ToggleIcon(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                     conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
             }
+            Spacer(Modifier.height(46.dp))
         }
-        // next song peeks in from the right edge, like the next card in a deck; drag left and it slides further in
-        val nextItem = conn.upNext.value.firstOrNull()
-        if (nextItem != null && !showLyrics) {
-            Column(Modifier.align(Alignment.CenterEnd).offset(y = (-30).dp)
-                .graphicsLayer {
-                    val pull = (-drag.value).coerceIn(0f, w) / w
-                    translationX = 62.dp.toPx() * (1f - pull * 1.4f).coerceAtLeast(0f)
-                    rotationY = -24f * (1f - pull)
-                    cameraDistance = 14f * density
-                    alpha = 1f - lyricA
-                }
-                .tilt { showQueue = true }, horizontalAlignment = Alignment.Start) {
-                AnimatedContent(nextItem.mediaId, transitionSpec = {
-                    (slideInHorizontally(tween(500, easing = WpEase)) { it } + fadeIn(tween(300))) togetherWith fadeOut(tween(200))
-                }, label = "peek") { _ ->
-                    Column {
-                        Text("NEXT", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
-                            modifier = Modifier.background(accent).padding(horizontal = 6.dp, vertical = 2.dp))
-                        Art(nextItem.mediaMetadata.artworkUri, accent, Modifier.padding(top = 4.dp).size(112.dp)
-                            .border(1.dp, White.copy(alpha = 0.35f)))
-                        Text(nextItem.mediaMetadata.title?.toString().orEmpty(), color = White, fontSize = 13.sp, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis, modifier = Modifier.width(112.dp).padding(top = 4.dp))
-                    }
-                }
-            }
-        }
+        NextBar(conn, accent, Modifier.align(Alignment.BottomCenter)) { showQueue = true }
         AnimatedVisibility(showQueue,
             enter = fadeIn(tween(250)) + slideInVertically(tween(450, easing = WpEase)) { it / 3 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(300, easing = WpEase)) { it / 3 }) {
@@ -744,6 +794,30 @@ fun PlayButton(playing: Boolean, accent: Color, onClick: () -> Unit) {
                 Icon(if (p) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = White, modifier = Modifier.size(36.dp))
             }
         }
+    }
+}
+
+/** Bottom bar in the style of the WP app bar: "next · title". Tap or swipe up for the full up-next list. */
+@Composable
+fun NextBar(conn: PlayerConnection, accent: Color, modifier: Modifier, onOpen: () -> Unit) {
+    val n = conn.upNext.value.firstOrNull()
+    val open by rememberUpdatedState(onOpen)
+    Row(modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.30f)).navigationBarsPadding()
+        .pointerInput(Unit) { detectVerticalDragGestures { ch, d -> if (d < -12) { ch.consume(); open() } } }
+        .tilt(onOpen).height(46.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.KeyboardArrowUp, null, tint = White.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))
+        Text("NEXT", color = accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
+            modifier = Modifier.padding(start = 8.dp, end = 10.dp))
+        AnimatedContent(n?.mediaId, transitionSpec = {
+            (slideInVertically(tween(420, easing = WpEase)) { it } + fadeIn(tween(300))) togetherWith
+                (slideOutVertically(tween(300, easing = WpEase)) { -it } + fadeOut(tween(200)))
+        }, modifier = Modifier.weight(1f), label = "nextbar") { _ ->
+            val md = n?.mediaMetadata
+            Text(if (md == null) "end of the list" else buildString {
+                append(md.title ?: ""); md.artist?.let { append("  ·  "); append(it.toString().lowercase()) }
+            }, color = White.copy(alpha = 0.85f), fontSize = 15.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Rounded.MoreHoriz, null, tint = White.copy(alpha = 0.7f), modifier = Modifier.size(22.dp))
     }
 }
 
@@ -857,35 +931,58 @@ fun ToggleIcon(icon: ImageVector, on: Boolean, accent: Color, onClick: () -> Uni
 @Composable
 fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
     val ctx = LocalContext.current
+    val key = ArtistRepository.key(name)
+    // every song where this artist is credited (main or featured)
     val songs = remember(name, vm.songs.value) {
-        vm.songs.value.filter { it.artist == name }.sortedWith(compareBy({ it.album.lowercase() }, { it.track }, { it.title }))
+        vm.songs.value.filter { s -> ArtistRepository.split(s.artist).any { ArtistRepository.key(it) == key } }
+            .sortedWith(compareBy({ it.album.lowercase() }, { it.track }, { it.title }))
     }
     val albums = remember(songs) { songs.groupBy { it.albumId }.values.toList() }
-    var info by remember(name) { mutableStateOf<ArtistInfo?>(null) }
-    var loading by remember(name) { mutableStateOf(true) }
-    LaunchedEffect(name) { info = ArtistRepository.load(ctx, name); loading = false }
+    val owned = remember(albums) { albums.associateBy { ArtistRepository.norm(it[0].album) } }
+    var info by remember(name) { mutableStateOf(ArtistRepository.cached(ctx, name)) }
+    var loading by remember(name) { mutableStateOf(info == null) }
+    LaunchedEffect(name) { if (info == null) { info = ArtistRepository.load(ctx, name); loading = false } }
     var bioOpen by remember { mutableStateOf(false) }
-    val list = rememberLazyListState()
     val intro = rememberIntro()
     val play: (Int) -> Unit = { conn.playSongs(songs, it); open(Screen.Playing) }
+    val deep = lerp(accent, Color.Black, 0.74f)
 
-    Box(Modifier.fillMaxSize()) {
-        // artist photo fills the background, drifting slower than the list (parallax), like WP8 Music
+    // smooth parallax: add up every pixel scrolled instead of jumping when the first item leaves
+    var scrollY by remember { mutableFloatStateOf(0f) }
+    val nested = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                scrollY = (scrollY - consumed.y).coerceAtLeast(0f); return Offset.Zero
+            }
+        }
+    }
+    val (albumRel, singles) = remember(info) {
+        (info?.releases ?: emptyList()).partition { it.type == "album" || it.type == "compile" }
+    }
+
+    Box(Modifier.fillMaxSize().background(deep)) {
         AnimatedContent(info?.image, transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(300)) }, label = "photo") { img ->
             Box(Modifier.fillMaxSize()) {
                 if (img != null) AsyncImage(model = img, contentDescription = null, contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(0.8f).graphicsLayer {
-                        val off = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else 2000f
-                        translationY = -off * 0.4f
-                    })
-                else TintBackground(accent, 0.45f)
+                    modifier = Modifier.fillMaxWidth().aspectRatio(0.82f)
+                        .graphicsLayer {
+                            translationY = -scrollY * 0.45f
+                            alpha = (1f - scrollY / 1600f).coerceIn(0.12f, 1f)
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                        // fade the photo's lower edge into the tint — no hard line
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(Brush.verticalGradient(0.45f to Color.Black, 1f to Color.Transparent), blendMode = BlendMode.DstIn)
+                        })
             }
         }
+        Box(Modifier.fillMaxSize().background(accent.copy(alpha = 0.16f)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-            0f to accent.copy(alpha = 0.25f), 0.35f to Color.Black.copy(alpha = 0.35f), 0.62f to Color.Black)))
+            0f to Color.Black.copy(alpha = 0.45f), 0.22f to Color.Transparent, 0.45f to deep.copy(alpha = 0.55f), 0.7f to deep)))
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-                item { Spacer(Modifier.height(170.dp)) }
+            LazyColumn(Modifier.weight(1f).nestedScroll(nested), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+                item { Spacer(Modifier.height(190.dp)) }
                 item {
                     Text((info?.name ?: name).lowercase(), color = White, fontSize = 62.sp, fontWeight = FontWeight.Light,
                         letterSpacing = (-2).sp, maxLines = 1, softWrap = false,
@@ -907,10 +1004,11 @@ fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accen
                 }
                 item {
                     Column(Modifier.feather(3, intro).fillMaxWidth().padding(bottom = 10.dp)) {
-                        Text("biography", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        SectionLabel("biography", accent)
                         when {
                             loading -> Text("finding out about this artist…", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
-                            info?.bio == null -> Text("no information found online", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                            info?.bio == null -> Text(if (info == null) "no information yet — connect to the internet once" else "no biography found",
+                                color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
                             else -> {
                                 Text(info!!.bio!!, color = White.copy(alpha = 0.9f), fontSize = 16.sp, fontWeight = FontWeight.Light,
                                     maxLines = if (bioOpen) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
@@ -923,26 +1021,65 @@ fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accen
                     }
                 }
                 if (albums.isNotEmpty()) item {
-                    Text("albums", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                    SectionLabel("in your library", accent)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(albums) { _, a ->
-                            Column(Modifier.width(130.dp).tilt {
+                            ReleaseCard(a[0].album, a[0].artUri, "${a.size} songs", true, accent) {
                                 open(Screen.Detail(a[0].album, a[0].artist, a.sortedWith(compareBy({ it.track }, { it.title }))))
-                            }) {
-                                Art(a[0].artUri, accent, Modifier.size(130.dp))
-                                Text(a[0].album.lowercase(), color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(top = 4.dp))
                             }
                         }
                     }
                 }
-                item { Text("songs", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)) }
+                if (albumRel.isNotEmpty()) item { Discography("albums", albumRel, owned, accent, open) }
+                if (singles.isNotEmpty()) item { Discography("singles & EPs", singles, owned, accent, open) }
+                item { SectionLabel("songs", accent, Modifier.padding(top = 18.dp)) }
                 itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
                     SongRow(s.title, "${s.album} · ${s.format}") { play(i) }
                 }
             }
             if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
         }
+    }
+}
+
+@Composable
+fun SectionLabel(text: String, accent: Color, modifier: Modifier = Modifier) {
+    Text(text.uppercase(), color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+        modifier = modifier.padding(top = 10.dp, bottom = 8.dp))
+}
+
+/** Full discography from the internet; releases you don't have are dimmed and tagged. */
+@Composable
+fun Discography(title: String, list: List<Release>, owned: Map<String, List<Song>>, accent: Color, open: (Screen) -> Unit) {
+    val have = list.count { owned.containsKey(ArtistRepository.norm(it.title)) }
+    Column {
+        SectionLabel("$title · $have of ${list.size} in library", accent, Modifier.padding(top = 8.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            itemsIndexed(list) { _, r ->
+                val mine = owned[ArtistRepository.norm(r.title)]
+                ReleaseCard(r.title, r.cover?.let { Uri.parse(it) }, listOf(r.year, r.type).filter { it.isNotBlank() }.joinToString(" · "),
+                    mine != null, accent) {
+                    if (mine != null) open(Screen.Detail(mine[0].album, mine[0].artist, mine.sortedWith(compareBy({ it.track }, { it.title }))))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReleaseCard(title: String, cover: Uri?, sub: String, mine: Boolean, accent: Color, onClick: () -> Unit) {
+    Column(Modifier.width(130.dp).tilt(onClick)) {
+        Box {
+            Art(cover, accent, Modifier.size(130.dp).graphicsLayer { alpha = if (mine) 1f else 0.5f })
+            if (!mine) Text("NOT IN LIBRARY", color = White, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+                modifier = Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha = 0.7f)).padding(horizontal = 5.dp, vertical = 2.dp))
+            else Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp).background(accent), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Check, null, tint = White, modifier = Modifier.size(14.dp))
+            }
+        }
+        Text(title.lowercase(), color = if (mine) White else White.copy(alpha = 0.6f), fontSize = 15.sp, maxLines = 1,
+            overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        Text(sub, color = Dim, fontSize = 12.sp, maxLines = 1)
     }
 }
 

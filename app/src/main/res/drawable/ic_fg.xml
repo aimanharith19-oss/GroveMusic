@@ -1,8 +1,19 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <!-- Windows Phone style tile glyph: thin white headphones -->
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:fillColor="#00000000"
-        android:pathData="M35,62 V54 A19,19 0 0 1 73,54 V62" />
-    <path android:fillColor="#FFFFFF" android:pathData="M31,58 h9 v18 h-9 z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M68,58 h9 v18 h-9 z" />
+    <!-- sound rings -->
+    <path android:pathData="M71.9,28.4 A23,23 0 0 1 85.6,57.9" android:strokeColor="#38FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" />
+    <path android:pathData="M69.5,35.0 A16,16 0 0 1 79.0,55.5" android:strokeColor="#59FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" />
+    <!-- stem + flag -->
+    <path android:pathData="M57,68 V32 C57,32 60,38 66,41 C72,44 74,49 72,54" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <!-- leaf note head (grove) -->
+    <path android:pathData="M58.5,67 C53,57 40,57 32,74 C43,80 55,77 58.5,67 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="34" android:startY="78" android:endX="58" android:endY="56">
+                <item android:offset="0" android:color="#FFFFFFFF" />
+                <item android:offset="1" android:color="#FFFFE3C4" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M34,73.5 C41,68.5 49,66.5 56.5,67.2" android:strokeColor="#8CC2306E" android:strokeWidth="1.4" android:strokeLineCap="round" />
 </vector>

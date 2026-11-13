@@ -105,6 +105,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val folders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
     val hidden = mutableStateOf(prefs.hiddenFolders)
     val loading = mutableStateOf(false)
+    /** bumps whenever a new artist picture/info lands in the cache */
+    val artistTick = androidx.compose.runtime.mutableIntStateOf(0)
     private var all: List<Song> = emptyList()
     private var byId: Map<String, Song> = emptyMap()
 
@@ -117,6 +119,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         folders.value = all.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
         apply()
         loading.value = false
+        // fetch & keep artist info/pictures for any new artists, so artist pages work offline
+        val names = songs.value.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
+        ArtistRepository.syncAll(getApplication(), names) { artistTick.intValue++ }
     }
 
     fun setHidden(folder: String, hide: Boolean) {
