@@ -140,6 +140,8 @@ class PlayerConnection(private val ctx: Context) {
     val shuffle = mutableStateOf(false)
     val repeatMode = mutableIntStateOf(Player.REPEAT_MODE_OFF)
     val upNext = mutableStateOf<List<MediaItem>>(emptyList())
+    /** upcoming songs in play order, with their position in the player's list */
+    val queue = mutableStateOf<List<Pair<Int, MediaItem>>>(emptyList())
 
     private var controller: MediaController? = null
     private val pending = ArrayList<(MediaController) -> Unit>()
@@ -173,16 +175,17 @@ class PlayerConnection(private val ctx: Context) {
         shuffle.value = p.shuffleModeEnabled
         repeatMode.intValue = p.repeatMode
         val t = p.currentTimeline
-        val next = ArrayList<MediaItem>()
+        val next = ArrayList<Pair<Int, MediaItem>>()
         if (!t.isEmpty && p.currentMediaItemIndex != C.INDEX_UNSET) {
             var i = p.currentMediaItemIndex
-            while (next.size < 5) {
+            while (next.size < 500) {
                 i = t.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
                 if (i == C.INDEX_UNSET) break
-                next += p.getMediaItemAt(i)
+                next += i to p.getMediaItemAt(i)
             }
         }
-        upNext.value = next
+        queue.value = next
+        upNext.value = next.take(5).map { it.second }
     }
 
     fun playSongs(songs: List<Song>, start: Int, shuffled: Boolean = false) = run {
@@ -210,6 +213,8 @@ class PlayerConnection(private val ctx: Context) {
         run { it.setMediaItem(item); it.prepare(); it.play() }
     }
 
+    fun playAt(index: Int) = run { it.seekTo(index, 0); it.play() }
+    fun removeAt(index: Int) = run { if (index in 0 until it.mediaItemCount) it.removeMediaItem(index) }
     fun playPause() = run { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0); it.play() } }
     fun next() = run { it.seekToNext() }
     fun prev() = run { it.seekToPrevious() }

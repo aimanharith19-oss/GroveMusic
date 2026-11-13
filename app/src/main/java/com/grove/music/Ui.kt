@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -537,6 +539,8 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     val prevFn by rememberUpdatedState(goPrev)
     val deep = lerp(accent, Color.Black, 0.74f)
     val lyricA by animateFloatAsState(if (showLyrics) 1f else 0f, tween(520, easing = WpEase), label = "lyr")
+    var showQueue by remember { mutableStateOf(false) }
+    BackHandler(showQueue) { showQueue = false }
     val inf = rememberInfiniteTransition(label = "kb")
     val kb by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse), label = "kb")
 
@@ -602,7 +606,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 }
                 if (!showLyrics) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { showLyrics = true } })
             }
-            UpNext(conn, accent, posS, durS) { goNext() }
+            UpNext(conn, accent, posS, durS, onOpen = { showQueue = true }) { goNext() }
             Spacer(Modifier.height(14.dp))
             SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -625,6 +629,78 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                     conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
             }
         }
+        AnimatedVisibility(showQueue,
+            enter = fadeIn(tween(250)) + slideInVertically(tween(450, easing = WpEase)) { it / 3 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(300, easing = WpEase)) { it / 3 }) {
+            QueuePanel(conn, accent, deep) { showQueue = false }
+        }
+    }
+}
+
+/** Full "up next" list over a deep tint. Tap a song to play it, slide it away to remove it. */
+@Composable
+fun QueuePanel(conn: PlayerConnection, accent: Color, deep: Color, onClose: () -> Unit) {
+    val q = conn.queue.value
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)).pointerInput(Unit) { detectTapGestures { onClose() } }) {
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.78f)
+            .background(Brush.verticalGradient(listOf(lerp(accent, Color.Black, 0.55f).copy(alpha = 0.97f), deep.copy(alpha = 0.99f))))
+            .pointerInput(Unit) { detectTapGestures { } }   // swallow taps so the panel doesn't close
+            .navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 14.dp)) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("up next", color = White, fontSize = 48.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
+                Icon(Icons.Rounded.KeyboardArrowDown, "close", tint = White,
+                    modifier = Modifier.padding(bottom = 10.dp).size(40.dp).clip(CircleShape).tilt(onClose).padding(6.dp))
+            }
+            Text(if (q.isEmpty()) "nothing after this song" else "${q.size} songs · slide a song away to remove it",
+                color = White.copy(alpha = 0.7f), fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                itemsIndexed(q, key = { pos, it -> "${it.second.mediaId}#${it.first}#$pos" }) { pos, (index, item) ->
+                    QueueRow(item, accent, pos, Modifier.animateItem(), onPlay = { conn.playAt(index) }) { conn.removeAt(index) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QueueRow(item: MediaItem, accent: Color, pos: Int, modifier: Modifier, onPlay: () -> Unit, onRemove: () -> Unit) {
+    val off = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var w by remember { mutableIntStateOf(1) }
+    val remove by rememberUpdatedState(onRemove)
+    val md = item.mediaMetadata
+    Box(modifier.fillMaxWidth().onSizeChanged { w = it.width }) {
+        Row(Modifier.matchParentSize().graphicsLayer { alpha = (abs(off.value) / w * 2.5f).coerceIn(0f, 1f) }
+            .background(Color(0xFFE51400)).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (off.value >= 0) Arrangement.Start else Arrangement.End) {
+            Icon(Icons.Rounded.Delete, "remove", tint = White)
+        }
+        Row(Modifier.fillMaxWidth()
+            .graphicsLayer { translationX = off.value; alpha = 1f - (abs(off.value) / w).coerceIn(0f, 1f) * 0.6f }
+            .background(Color.Transparent)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (abs(off.value) > w * 0.33f) {
+                                off.animateTo(if (off.value > 0) w.toFloat() else -w.toFloat(), tween(180))
+                                remove()
+                            } else off.animateTo(0f, tween(300, easing = WpEase))
+                        }
+                    },
+                    onDragCancel = { scope.launch { off.animateTo(0f, tween(300, easing = WpEase)) } }
+                ) { ch, d -> ch.consume(); scope.launch { off.snapTo(off.value + d) } }
+            }
+            .tilt(onPlay).padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Art(md.artworkUri, accent, Modifier.size(50.dp))
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text(md.title?.toString().orEmpty(), color = White, fontSize = 19.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(md.artist?.toString().orEmpty().lowercase(), color = White.copy(alpha = 0.6f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (pos == 0) Text("NEXT", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.background(accent).padding(horizontal = 6.dp, vertical = 2.dp))
+        }
     }
 }
 
@@ -643,7 +719,7 @@ fun PlayButton(playing: Boolean, accent: Color, onClick: () -> Unit) {
 
 /** Up next: a fanned deck of the coming covers with an accent glass card; counts down at the end of a song. */
 @Composable
-fun UpNext(conn: PlayerConnection, accent: Color, posS: State<Long>, durS: State<Long>, onNext: () -> Unit) {
+fun UpNext(conn: PlayerConnection, accent: Color, posS: State<Long>, durS: State<Long>, onOpen: () -> Unit, onNext: () -> Unit) {
     val list = conn.upNext.value
     val n = list.firstOrNull() ?: return
     val left by remember { derivedStateOf { ((durS.value - posS.value) / 1000).coerceAtLeast(0) } }
@@ -651,7 +727,7 @@ fun UpNext(conn: PlayerConnection, accent: Color, posS: State<Long>, durS: State
     val glow by animateFloatAsState(if (soon) 1f else 0f, tween(800), label = "soon")
     Row(Modifier.fillMaxWidth()
         .background(Brush.horizontalGradient(listOf(accent.copy(alpha = 0.50f + 0.25f * glow), accent.copy(alpha = 0.18f), Color.Transparent)))
-        .tilt(onNext).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        .tilt(onOpen).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(80.dp).height(56.dp)) {
             val covers = list.take(3)
             for (i in covers.indices.reversed()) {
@@ -674,7 +750,8 @@ fun UpNext(conn: PlayerConnection, accent: Color, posS: State<Long>, durS: State
                 }
             }
         }
-        Icon(Icons.Rounded.SkipNext, null, tint = White.copy(alpha = 0.8f), modifier = Modifier.size(26.dp))
+        Icon(Icons.Rounded.SkipNext, "skip", tint = White,
+            modifier = Modifier.size(40.dp).clip(CircleShape).tilt(onNext).padding(7.dp))
     }
 }
 
