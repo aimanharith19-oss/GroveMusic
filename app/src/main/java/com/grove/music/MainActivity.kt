@@ -16,10 +16,27 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
+        useHighestRefreshRate()
         conn = PlayerConnection(this)
         val prefs = Prefs(this)
         setContent { GroveApp(vm, conn, prefs) }
         if (savedInstanceState == null) handle(intent)
+    }
+
+    /** Ask the display for its fastest mode (90/120/144 Hz) at the current resolution. */
+    @Suppress("DEPRECATION")
+    private fun useHighestRefreshRate() = runCatching {
+        val d = if (android.os.Build.VERSION.SDK_INT >= 30) display!! else windowManager.defaultDisplay
+        val cur = d.mode
+        val best = d.supportedModes
+            .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+            .maxByOrNull { it.refreshRate } ?: return@runCatching
+        window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId; preferredRefreshRate = best.refreshRate }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        useHighestRefreshRate()
     }
 
     override fun onNewIntent(intent: Intent) {

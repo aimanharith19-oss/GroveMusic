@@ -1,7 +1,8 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <group android:translateX="30" android:translateY="30" android:scaleX="2" android:scaleY="2">
-        <path android:fillColor="#FFFFFF"
-            android:pathData="M12,3v10.55c-0.59,-0.34 -1.27,-0.55 -2,-0.55 -2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4V7h4V3h-6z" />
-    </group>
+    <!-- Windows Phone style tile glyph: thin white headphones -->
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:fillColor="#00000000"
+        android:pathData="M35,62 V54 A19,19 0 0 1 73,54 V62" />
+    <path android:fillColor="#FFFFFF" android:pathData="M31,58 h9 v18 h-9 z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M68,58 h9 v18 h-9 z" />
 </vector>

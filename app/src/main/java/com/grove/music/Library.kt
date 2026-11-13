@@ -29,6 +29,7 @@ data class Song(
     val displayName: String,
     val genre: String,
 ) {
+    val folder: String get() = path?.substringBeforeLast('/', "")?.ifEmpty { null } ?: "unknown folder"
     val artUri: Uri get() = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
     val format: String get() = formatOf(mime, displayName)
 }
@@ -98,18 +99,34 @@ object MusicRepository {
 }
 
 class MusicViewModel(app: Application) : AndroidViewModel(app) {
+    private val prefs = Prefs(app)
     val songs = mutableStateOf<List<Song>>(emptyList())
+    /** every folder that contains music, with its song count (hidden ones included) */
+    val folders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
+    val hidden = mutableStateOf(prefs.hiddenFolders)
     val loading = mutableStateOf(false)
+    private var all: List<Song> = emptyList()
     private var byId: Map<String, Song> = emptyMap()
 
     fun song(id: String?): Song? = id?.let { byId[it] }
 
     fun load() = viewModelScope.launch {
         loading.value = true
-        val list = withContext(Dispatchers.IO) { runCatching { MusicRepository.query(getApplication()) }.getOrDefault(emptyList()) }
-        byId = list.associateBy { it.id.toString() }
-        songs.value = list
+        all = withContext(Dispatchers.IO) { runCatching { MusicRepository.query(getApplication()) }.getOrDefault(emptyList()) }
+        byId = all.associateBy { it.id.toString() }
+        folders.value = all.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
+        apply()
         loading.value = false
+    }
+
+    fun setHidden(folder: String, hide: Boolean) {
+        val h = if (hide) hidden.value + folder else hidden.value - folder
+        hidden.value = h; prefs.hiddenFolders = h; apply()
+    }
+
+    private fun apply() {
+        val h = hidden.value
+        songs.value = if (h.isEmpty()) all else all.filter { it.folder !in h }
     }
 }
 
@@ -124,6 +141,9 @@ class Prefs(ctx: Context) {
     var onlineLyrics: Boolean
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
+    var hiddenFolders: Set<String>
+        get() = sp.getStringSet("hidden_folders", emptySet())!!.toSet()
+        set(v) = sp.edit().putStringSet("hidden_folders", v).apply()
     fun lyricsFor(id: String): String? = sp.getString("lrc_$id", null)
     fun setLyricsFor(id: String, uri: String) = sp.edit().putString("lrc_$id", uri).apply()
 }

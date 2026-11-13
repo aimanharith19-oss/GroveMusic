@@ -129,6 +129,8 @@ fun TintBackground(accent: Color, strength: Float = 0.38f) {
 sealed interface Screen {
     data object Home : Screen
     data object Playing : Screen
+    data object Settings : Screen
+    data class Artist(val name: String) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
 
@@ -167,8 +169,10 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     rotationY = rot; transformOrigin = TransformOrigin(0f, 0.5f); cameraDistance = 18f * density
                 }) {
                 when (s) {
-                    Screen.Home -> HomeScreen(vm, conn, prefs, accent, { accentInt = it; prefs.accent = it }, open) { permLauncher.launch(perms) }
-                    Screen.Playing -> NowPlayingScreen(vm, conn, prefs, accent)
+                    Screen.Home -> HomeScreen(vm, conn, accent, open) { permLauncher.launch(perms) }
+                    Screen.Playing -> NowPlayingScreen(vm, conn, prefs, accent, open)
+                    Screen.Settings -> SettingsScreen(vm, prefs, accent, { accentInt = it; prefs.accent = it }) { vm.load() }
+                    is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                 }
                 }
@@ -181,16 +185,17 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
 
 @Composable
 fun HomeScreen(
-    vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, accent: Color,
-    onAccent: (Int) -> Unit, open: (Screen) -> Unit, askPerms: () -> Unit,
+    vm: MusicViewModel, conn: PlayerConnection, accent: Color,
+    open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "genres", "settings")
+    val pages = listOf("songs", "artists", "albums", "genres")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
     val play: (List<Song>, Int) -> Unit = { l, i -> conn.playSongs(l, i); open(Screen.Playing) }
 
-    val pos = pager.currentPage + pager.currentPageOffsetFraction
+    // read only inside graphicsLayer, so swiping never recomposes the screen (smooth at 90/120 Hz)
+    val pos: () -> Float = { pager.currentPage + pager.currentPageOffsetFraction }
     Box(Modifier.fillMaxSize()) {
     TintBackground(accent)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -199,8 +204,11 @@ fun HomeScreen(
             Text("grove music", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
                 maxLines = 1, softWrap = false,
                 modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
-                    .graphicsLayer { translationX = -pos * 70.dp.toPx() }
-                    .padding(start = 12.dp, top = 4.dp))
+                    .graphicsLayer { translationX = -pos() * 70.dp.toPx() }
+                    .padding(start = 12.dp, top = 4.dp, end = 60.dp))
+            Icon(Icons.Rounded.Settings, "settings", tint = White.copy(alpha = 0.85f),
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp).size(40.dp)
+                    .clip(CircleShape).tilt { open(Screen.Settings) }.padding(8.dp))
         }
         PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
         HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
@@ -208,16 +216,13 @@ fun HomeScreen(
                 "songs" -> SongsPage(songs, accent, vm.loading.value, askPerms, onShuffle = {
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
-                "artists" -> GroupPage(songs.groupBy { it.artist }, accent) { name, list ->
-                    open(Screen.Detail(name, "${list.size} songs", list.sortedWith(compareBy({ it.album }, { it.track }, { it.title }))))
-                }
+                "artists" -> GroupPage(songs.groupBy { it.artist }, accent) { name, _ -> open(Screen.Artist(name)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
                 }
                 "genres" -> GroupPage(songs.groupBy { it.genre }, accent) { name, list ->
                     open(Screen.Detail(name, "${list.size} songs", list))
                 }
-                else -> SettingsPage(prefs, accent, onAccent) { vm.load() }
             }
         }
         if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
@@ -227,21 +232,21 @@ fun HomeScreen(
 
 /** Pivot headers that glide with the finger, exactly in step with the pager. */
 @Composable
-fun PivotHeaders(pages: List<String>, pos: Float, accent: Color, onSelect: (Int) -> Unit) {
+fun PivotHeaders(pages: List<String>, pos: () -> Float, accent: Color, onSelect: (Int) -> Unit) {
     val widths = remember { mutableStateListOf<Float>().apply { repeat(pages.size) { add(0f) } } }
     Box(Modifier.fillMaxWidth().clipToBounds()) {
         Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
             .graphicsLayer {
-                val i = pos.toInt().coerceIn(0, pages.lastIndex)
-                val f = pos - i
+                val p = pos()
+                val i = p.toInt().coerceIn(0, pages.lastIndex)
+                val f = p - i
                 translationX = -(widths.take(i).sum() + widths.getOrElse(i) { 0f } * f)
             }
             .padding(start = 18.dp)) {
             pages.forEachIndexed { i, name ->
-                val a = (1f - abs(pos - i)).coerceIn(0f, 1f)
-                Text(name, fontSize = 46.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false,
-                    color = lerp(accent.copy(alpha = 0.55f), White, a),
+                Text(name, fontSize = 46.sp, fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, color = White,
                     modifier = Modifier.onSizeChanged { widths[i] = it.width.toFloat() }
+                        .graphicsLayer { alpha = 0.35f + 0.65f * (1f - abs(pos() - i)).coerceIn(0f, 1f) }
                         .clickable { onSelect(i) }.padding(end = 22.dp, bottom = 4.dp))
             }
         }
@@ -335,7 +340,7 @@ fun AlbumsPage(songs: List<Song>, accent: Color, onOpen: (List<Song>) -> Unit) {
 }
 
 @Composable
-fun SettingsPage(prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: () -> Unit) {
+fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: () -> Unit) {
     val ctx = LocalContext.current
     var folder by remember { mutableStateOf(prefs.lyricsFolder) }
     var online by remember { mutableStateOf(prefs.onlineLyrics) }
@@ -345,7 +350,12 @@ fun SettingsPage(prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: (
             prefs.lyricsFolder = uri.toString(); folder = uri.toString(); LyricsRepository.invalidateFolder()
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+    val hidden = vm.hidden.value
+    Box(Modifier.fillMaxSize()) {
+    TintBackground(accent, 0.30f)
+    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+        Text("GROVE MUSIC", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp))
+        Text("settings", color = White, fontSize = 56.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(bottom = 8.dp))
         Text("accent colour", color = Dim, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
         Accents.chunked(5).forEach { row ->
             Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -366,8 +376,24 @@ fun SettingsPage(prefs: Prefs, accent: Color, onAccent: (Int) -> Unit, rescan: (
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
         SettingItem("rescan library", "look for new music on this phone", rescan)
+        Text("hidden folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
+        Text("untick a folder to hide its songs from your collection", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
+        vm.folders.value.forEach { (f, n) ->
+            val shown = f !in hidden
+            Row(Modifier.fillMaxWidth().tilt { vm.setHidden(f, shown) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(26.dp).border(2.dp, White).background(if (shown) accent else Color.Transparent), contentAlignment = Alignment.Center) {
+                    if (shown) Icon(Icons.Rounded.Check, null, tint = White, modifier = Modifier.size(20.dp))
+                }
+                Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                    Text(f.substringAfterLast('/').ifEmpty { f }, color = if (shown) White else Dim, fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("$n songs · ${f.removePrefix("/storage/emulated/0")}", color = Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        if (vm.folders.value.isEmpty()) Text("no music folders found", color = Dim, fontSize = 15.sp)
         SettingItem("about", "Grove Music 1.0 · plays MP3, FLAC (incl. 24-bit), OGG, OPUS, M4A, WAV") {}
         Spacer(Modifier.height(24.dp))
+    }
     }
 }
 
@@ -438,16 +464,18 @@ private fun fmt(ms: Long): String {
 }
 
 @Composable
-fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, accent: Color) {
+fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, accent: Color, open: (Screen) -> Unit) {
     val ctx = LocalContext.current
     val item = conn.current.value
     if (item == null) { EmptyMsg("nothing playing"); return }
     val md = item.mediaMetadata
     val song = vm.song(item.mediaId)
 
-    var pos by remember { mutableLongStateOf(0L) }
-    var dur by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { pos = conn.position(); dur = conn.duration(); delay(200) } }
+    // position lives in state objects that only the seek bar / clock / lyrics read,
+    // so the rest of the screen (blurred art etc.) is not redrawn every tick
+    val posS = remember { mutableLongStateOf(0L) }
+    val durS = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { posS.longValue = conn.position(); durS.longValue = conn.duration(); delay(100) } }
 
     var showLyrics by rememberSaveable { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
@@ -476,15 +504,17 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
         0f to accent.copy(alpha = 0.45f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f))))
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        Text((md.artist ?: "unknown artist").toString().lowercase(), color = White, fontSize = 54.sp,
+        val artistName = (md.artist ?: "unknown artist").toString()
+        Text(artistName.lowercase(), color = White, fontSize = 54.sp,
             fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
-            modifier = Modifier.padding(top = 6.dp).wrapContentWidth(Alignment.Start, unbounded = true))
+            modifier = Modifier.padding(top = 6.dp).tilt { open(Screen.Artist(artistName)) }
+                .wrapContentWidth(Alignment.Start, unbounded = true))
         Text((md.albumTitle ?: "").toString().lowercase(), color = Dim, fontSize = 18.sp, maxLines = 1)
         Spacer(Modifier.height(14.dp))
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (showLyrics) {
-                LyricsView(lyrics, lyricsLoading, pos, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
+                LyricsView(lyrics, lyricsLoading, { posS.longValue }, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
             } else {
                 var dx by remember { mutableFloatStateOf(0f) }
                 val follow by animateFloatAsState(dx, if (dx == 0f) tween(380, easing = WpEase) else tween(0), label = "swipe")
@@ -506,12 +536,8 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         }
 
         Spacer(Modifier.height(10.dp))
-        SeekBar(pos, dur, accent, conn::seekTo)
-        Row(Modifier.fillMaxWidth()) {
-            Text(fmt(pos), color = Dim, fontSize = 13.sp)
-            Spacer(Modifier.weight(1f))
-            Text("-" + fmt(dur - pos), color = Dim, fontSize = 13.sp)
-        }
+        SeekBar(posS, durS, accent, conn::seekTo)
+        TimeRow(posS, durS)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
             Text(md.title?.toString().orEmpty(), color = White, fontSize = 24.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
@@ -539,7 +565,17 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
 }
 
 @Composable
-fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: Long, accent: Color, onSeek: (Long) -> Unit, onPick: () -> Unit, modifier: Modifier) {
+fun TimeRow(posS: State<Long>, durS: State<Long>) {
+    val pos = posS.value; val dur = durS.value
+    Row(Modifier.fillMaxWidth()) {
+        Text(fmt(pos), color = Dim, fontSize = 13.sp)
+        Spacer(Modifier.weight(1f))
+        Text("-" + fmt(dur - pos), color = Dim, fontSize = 13.sp)
+    }
+}
+
+@Composable
+fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: () -> Long, accent: Color, onSeek: (Long) -> Unit, onPick: () -> Unit, modifier: Modifier) {
     Box(modifier) {
         when {
             loading -> Text("searching for lyrics…", color = Dim, fontSize = 20.sp, fontWeight = FontWeight.Light)
@@ -551,7 +587,7 @@ fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: Long, accent: Color, onSe
             }
             else -> {
                 val state = rememberLazyListState()
-                val cur = if (lyrics.synced) lyrics.lines.indexOfLast { it.time <= pos + 150 } else -1
+                val cur by remember(lyrics) { derivedStateOf { if (lyrics.synced) lyrics.lines.indexOfLast { it.time <= pos() + 150 } else -1 } }
                 LaunchedEffect(cur) { if (cur >= 0) state.animateScrollToItem((cur - 2).coerceAtLeast(0)) }
                 LazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(lyrics.lines) { i, l ->
@@ -577,11 +613,10 @@ fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: Long, accent: Color, onSe
 }
 
 @Composable
-fun SeekBar(pos: Long, dur: Long, accent: Color, onSeek: (Long) -> Unit) {
+fun SeekBar(posS: State<Long>, durS: State<Long>, accent: Color, onSeek: (Long) -> Unit) {
     var drag by remember { mutableStateOf<Float?>(null) }
     val seek by rememberUpdatedState(onSeek)
-    val d by rememberUpdatedState(dur)
-    val frac = drag ?: if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
+    val d by durS
     Canvas(Modifier.fillMaxWidth().height(26.dp)
         .pointerInput(Unit) { detectTapGestures { o -> if (d > 0) seek((o.x / size.width * d).toLong()) } }
         .pointerInput(Unit) {
@@ -590,6 +625,8 @@ fun SeekBar(pos: Long, dur: Long, accent: Color, onSeek: (Long) -> Unit) {
                 onDragCancel = { drag = null }
             ) { ch, _ -> drag = (ch.position.x / size.width).coerceIn(0f, 1f) }
         }) {
+        val pos = posS.value; val dur = durS.value
+        val frac = drag ?: if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
         val y = size.height / 2
         val w = 5.dp.toPx()
         drawLine(Color.White.copy(alpha = 0.25f), Offset(0f, y), Offset(size.width, y), w)
@@ -610,4 +647,104 @@ fun ToggleIcon(icon: ImageVector, on: Boolean, accent: Color, onClick: () -> Uni
     Box(Modifier.size(44.dp).tilt(onClick).clip(CircleShape), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = if (on) accent else Dim, modifier = Modifier.size(26.dp))
     }
+}
+
+// ───────────────────────── artist ─────────────────────────
+
+@Composable
+fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    val ctx = LocalContext.current
+    val songs = remember(name, vm.songs.value) {
+        vm.songs.value.filter { it.artist == name }.sortedWith(compareBy({ it.album.lowercase() }, { it.track }, { it.title }))
+    }
+    val albums = remember(songs) { songs.groupBy { it.albumId }.values.toList() }
+    var info by remember(name) { mutableStateOf<ArtistInfo?>(null) }
+    var loading by remember(name) { mutableStateOf(true) }
+    LaunchedEffect(name) { info = ArtistRepository.load(ctx, name); loading = false }
+    var bioOpen by remember { mutableStateOf(false) }
+    val list = rememberLazyListState()
+    val intro = rememberIntro()
+    val play: (Int) -> Unit = { conn.playSongs(songs, it); open(Screen.Playing) }
+
+    Box(Modifier.fillMaxSize()) {
+        // artist photo fills the background, drifting slower than the list (parallax), like WP8 Music
+        AnimatedContent(info?.image, transitionSpec = { fadeIn(tween(700)) togetherWith fadeOut(tween(300)) }, label = "photo") { img ->
+            Box(Modifier.fillMaxSize()) {
+                if (img != null) AsyncImage(model = img, contentDescription = null, contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(0.8f).graphicsLayer {
+                        val off = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset.toFloat() else 2000f
+                        translationY = -off * 0.4f
+                    })
+                else TintBackground(accent, 0.45f)
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            0f to accent.copy(alpha = 0.25f), 0.35f to Color.Black.copy(alpha = 0.35f), 0.62f to Color.Black)))
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+                item { Spacer(Modifier.height(170.dp)) }
+                item {
+                    Text((info?.name ?: name).lowercase(), color = White, fontSize = 62.sp, fontWeight = FontWeight.Light,
+                        letterSpacing = (-2).sp, maxLines = 1, softWrap = false,
+                        modifier = Modifier.feather(0, intro).wrapContentWidth(Alignment.Start, unbounded = true))
+                    val sub = buildList {
+                        add("${songs.size} songs"); if (albums.size > 1) add("${albums.size} albums")
+                        info?.fans?.takeIf { it > 0 }?.let { add(fans(it) + " fans") }
+                    }.joinToString(" · ")
+                    Text(sub, color = White.copy(alpha = 0.75f), fontSize = 15.sp, modifier = Modifier.feather(1, intro))
+                }
+                item {
+                    Row(Modifier.feather(2, intro).padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("play", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt { if (songs.isNotEmpty()) play(0) }
+                            .padding(horizontal = 22.dp, vertical = 10.dp))
+                        Text("shuffle", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White)
+                            .tilt { if (songs.isNotEmpty()) { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) } }
+                            .padding(horizontal = 22.dp, vertical = 8.dp))
+                    }
+                }
+                item {
+                    Column(Modifier.feather(3, intro).fillMaxWidth().padding(bottom = 10.dp)) {
+                        Text("biography", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        when {
+                            loading -> Text("finding out about this artist…", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                            info?.bio == null -> Text("no information found online", color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                            else -> {
+                                Text(info!!.bio!!, color = White.copy(alpha = 0.9f), fontSize = 16.sp, fontWeight = FontWeight.Light,
+                                    maxLines = if (bioOpen) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.tilt { bioOpen = !bioOpen }.padding(vertical = 4.dp))
+                                Text(if (bioOpen) "less" else "more", color = accent, fontSize = 15.sp,
+                                    modifier = Modifier.tilt { bioOpen = !bioOpen }.padding(vertical = 4.dp))
+                                Text("from Wikipedia", color = Dim, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+                if (albums.isNotEmpty()) item {
+                    Text("albums", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        itemsIndexed(albums) { _, a ->
+                            Column(Modifier.width(130.dp).tilt {
+                                open(Screen.Detail(a[0].album, a[0].artist, a.sortedWith(compareBy({ it.track }, { it.title }))))
+                            }) {
+                                Art(a[0].artUri, accent, Modifier.size(130.dp))
+                                Text(a[0].album.lowercase(), color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                    }
+                }
+                item { Text("songs", color = accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)) }
+                itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
+                    SongRow(s.title, "${s.album} · ${s.format}") { play(i) }
+                }
+            }
+            if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
+        }
+    }
+}
+
+private fun fans(n: Int): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000f)
+    n >= 1_000 -> "%.1fK".format(n / 1_000f)
+    else -> n.toString()
 }
