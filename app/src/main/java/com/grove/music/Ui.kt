@@ -104,7 +104,9 @@ val Accents = listOf(
 private val WpEase = CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f)
 
 /** Windows Phone "tilt" press effect: the item tips toward the finger. */
-fun Modifier.tilt(onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier = composed {
+fun Modifier.tilt(onClick: () -> Unit): Modifier = tilt(null, onClick)
+
+fun Modifier.tilt(onLongClick: (() -> Unit)?, onClick: () -> Unit): Modifier = composed {
     var pressed by remember { mutableStateOf(false) }
     var touch by remember { mutableStateOf(Offset.Zero) }
     var sz by remember { mutableStateOf(IntSize.Zero) }
