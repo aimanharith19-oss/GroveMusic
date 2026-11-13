@@ -166,16 +166,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         hidden.value = h; prefs.hiddenFolders = h; apply()
     }
 
-    private fun apply() {
-        val h = hidden.value
-        var list = if (h.isEmpty()) all else all.filter { it.folder !in h }
-        if (preferFlac.value) {
-            // when a FLAC copy exists, show only the FLAC version of that song
-            val flac = list.filter { FlacConverter.isFlac(it) }.map { sameKey(it) }.toHashSet()
-            list = list.filter { FlacConverter.isFlac(it) || sameKey(it) !in flac }
-        }
-        songs.value = list
-    }
+    private fun apply() { songs.value = visibleSongs(all, hidden.value, preferFlac.value) }
 }
 
 class Prefs(ctx: Context) {
@@ -205,4 +196,15 @@ class Prefs(ctx: Context) {
         set(v) = sp.edit().putStringSet("hidden_folders", v).apply()
     fun lyricsFor(id: String): String? = sp.getString("lrc_$id", null)
     fun setLyricsFor(id: String, uri: String) = sp.edit().putString("lrc_$id", uri).apply()
+}
+
+/** Library as the user sees it: hidden folders removed, and only the FLAC copy when one exists. */
+fun visibleSongs(all: List<Song>, hidden: Set<String>, preferFlac: Boolean): List<Song> {
+    var list = if (hidden.isEmpty()) all else all.filter { it.folder !in hidden }
+    if (preferFlac) {
+        fun k(s: Song) = ArtistRepository.norm(s.title) + "|" + ArtistRepository.norm(s.artist)
+        val flac = list.filter { FlacConverter.isFlac(it) }.map { k(it) }.toHashSet()
+        list = list.filter { FlacConverter.isFlac(it) || k(it) !in flac }
+    }
+    return list
 }

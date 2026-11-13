@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,15 +38,87 @@ class PlaybackService : MediaLibraryService() {
     private var library: List<Song>? = null
 
     private fun songs(): List<Song> = library ?: runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
-        .let { all -> val h = Prefs(this).hiddenFolders; all.filter { it.folder !in h } }.also { library = it }
+        .let { val p = Prefs(this); visibleSongs(it, p.hiddenFolders, p.preferFlac) }.also { library = it }
 
+    private fun byId() = songs().associateBy { it.id.toString() }
+
+    // ── browse tree for Android Auto & other media browsers ────────────────
+    // root → playlists / albums / artists / songs
+    // playable ids are "<parent>::<songId>" so tapping a song plays its whole list from there
+
+    private fun folder(id: String, title: String, art: Uri? = null, sub: String? = null, grid: Boolean = false) =
+        MediaItem.Builder().setMediaId(id).setMediaMetadata(
+            MediaMetadata.Builder().setTitle(title).setSubtitle(sub).setArtworkUri(art)
+                .setIsBrowsable(true).setIsPlayable(false).setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                .setExtras(Bundle().apply {
+                    putInt(STYLE_BROWSABLE, if (grid) 2 else 1); putInt(STYLE_PLAYABLE, 1)
+                }).build()
+        ).build()
+
+    private fun playable(parent: String, s: Song): MediaItem {
+        val base = s.toMediaItem()
+        return base.buildUpon().setMediaId("$parent::${s.id}")
+            .setMediaMetadata(base.mediaMetadata.buildUpon().setArtworkUri(ArtProvider.album(s.albumId)).build()).build()
+    }
+
+    private fun artistKey(s: Song) = ArtistRepository.key(ArtistRepository.primary(s.artist))
+
+    /** songs belonging to a browse folder, in play order */
+    private fun songsOf(parent: String): List<Song> {
+        val all = songs()
+        return when {
+            parent == "songs" -> all.sortedBy { it.title.lowercase() }
+            parent.startsWith("al:") -> all.filter { it.albumId.toString() == parent.drop(3) }.sortedWith(compareBy({ it.track }, { it.title }))
+            parent.startsWith("ar:") -> parent.drop(3).let { k ->
+                all.filter { s -> ArtistRepository.split(s.artist).any { ArtistRepository.key(it) == k } }
+                    .sortedWith(compareBy({ it.album.lowercase() }, { it.track }))
+            }
+            parent.startsWith("pl:") -> PlaylistStore(this).get(parent.drop(3))?.ids?.let { ids ->
+                val m = byId(); ids.mapNotNull { m[it.toString()] }
+            } ?: emptyList()
+            parent == "search" -> lastSearch
+            else -> emptyList()
+        }
+    }
+
+    private fun children(parent: String): List<MediaItem> = when (parent) {
+        ROOT -> listOf(
+            folder("playlists", "Playlists"), folder("albums", "Albums", grid = true),
+            folder("artists", "Artists", grid = true), folder("songs", "Songs"),
+        )
+        "playlists" -> PlaylistStore(this).lists.value.map { p ->
+            folder("pl:${p.id}", p.name, sub = "${p.ids.size} songs",
+                art = p.ids.firstNotNullOfOrNull { byId()[it.toString()] }?.let { ArtProvider.album(it.albumId) })
+        }
+        "albums" -> songs().groupBy { it.albumId }.values.sortedBy { it[0].album.lowercase() }.map { l ->
+            folder("al:${l[0].albumId}", l[0].album, ArtProvider.album(l[0].albumId), l[0].artist, grid = true)
+        }
+        "artists" -> songs().groupBy { artistKey(it) }.map { (k, l) ->
+            val name = l.map { ArtistRepository.primary(it.artist) }.groupingBy { it }.eachCount().maxBy { it.value }.key
+            val img = ArtistRepository.cached(this, name)?.image
+            folder("ar:$k", name, img?.let { ArtProvider.url(it) } ?: ArtProvider.album(l[0].albumId), "${l.size} songs", grid = true)
+        }.sortedBy { it.mediaMetadata.title.toString().lowercase() }
+        else -> songsOf(parent).map { playable(parent, it) }
+    }
+
+    private var lastSearch: List<Song> = emptyList()
+    private fun search(q: String): List<Song> {
+        val t = q.trim().lowercase()
+        lastSearch = if (t.isEmpty()) songs().shuffled() else songs().filter {
+            it.title.lowercase().contains(t) || it.artist.lowercase().contains(t) || it.album.lowercase().contains(t)
+        }
+        return lastSearch
+    }
+
+    /** turns browse ids ("albums::123") back into playable items */
     private fun resolve(items: List<MediaItem>): MutableList<MediaItem> {
-        val byId by lazy { songs().associateBy { it.id.toString() } }
+        val m by lazy { byId() }
         return items.mapNotNull { item ->
             when {
                 item.requestMetadata.mediaUri != null -> item.buildUpon().setUri(item.requestMetadata.mediaUri).build()
                 item.localConfiguration != null -> item
-                else -> byId[item.mediaId]?.toMediaItem()
+                item.requestMetadata.searchQuery != null -> search(item.requestMetadata.searchQuery!!).firstOrNull()?.toMediaItem()
+                else -> m[item.mediaId.substringAfterLast("::")]?.toMediaItem()
             }
         }.toMutableList()
     }
@@ -75,44 +148,80 @@ class PlaybackService : MediaLibraryService() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val root = MediaItem.Builder().setMediaId("root").setMediaMetadata(
+        val root = MediaItem.Builder().setMediaId(ROOT).setMediaMetadata(
             MediaMetadata.Builder().setTitle("Grove Music").setIsBrowsable(true).setIsPlayable(false)
-                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
-        ).build()
-        val songsFolder = MediaItem.Builder().setMediaId("songs").setMediaMetadata(
-            MediaMetadata.Builder().setTitle("All songs").setIsBrowsable(true).setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
         ).build()
 
         session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
-            override fun onGetLibraryRoot(s: MediaLibrarySession, b: MediaSession.ControllerInfo, params: LibraryParams?) =
-                Futures.immediateFuture(LibraryResult.ofItem(root, params))
+            override fun onGetLibraryRoot(s: MediaLibrarySession, b: MediaSession.ControllerInfo, params: LibraryParams?)
+                : ListenableFuture<LibraryResult<MediaItem>> {
+                library = null // pick up new songs / playlists
+                val extras = Bundle().apply {
+                    putBoolean("android.media.browse.SEARCH_SUPPORTED", true)
+                    putInt(STYLE_BROWSABLE, 1); putInt(STYLE_PLAYABLE, 1)
+                }
+                return Futures.immediateFuture(LibraryResult.ofItem(root, LibraryParams.Builder().setExtras(extras).build()))
+            }
 
             override fun onGetChildren(s: MediaLibrarySession, b: MediaSession.ControllerInfo, parentId: String,
                                        page: Int, pageSize: Int, params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-                val list: List<MediaItem> = when (parentId) {
-                    "root" -> listOf(songsFolder)
-                    "songs" -> songs().drop(page * pageSize).take(pageSize).map { it.toMediaItem() }
-                    else -> emptyList()
-                }
+                val all = runCatching { children(parentId) }.getOrDefault(emptyList())
+                val list = if (pageSize in 1 until Int.MAX_VALUE) all.drop(page * pageSize).take(pageSize) else all
                 return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
             }
 
-            override fun onGetItem(s: MediaLibrarySession, b: MediaSession.ControllerInfo, mediaId: String) =
+            override fun onGetItem(s: MediaLibrarySession, b: MediaSession.ControllerInfo, mediaId: String)
+                : ListenableFuture<LibraryResult<MediaItem>> =
                 Futures.immediateFuture(
-                    songs().firstOrNull { it.id.toString() == mediaId }?.let { LibraryResult.ofItem(it.toMediaItem(), null) }
+                    byId()[mediaId.substringAfterLast("::")]?.let { LibraryResult.ofItem(it.toMediaItem(), null) }
                         ?: LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
                 )
+
+            override fun onSearch(s: MediaLibrarySession, b: MediaSession.ControllerInfo, query: String, params: LibraryParams?)
+                : ListenableFuture<LibraryResult<Void>> {
+                val n = search(query).size
+                s.notifySearchResultChanged(b, query, n, params)
+                return Futures.immediateFuture(LibraryResult.ofVoid())
+            }
+
+            override fun onGetSearchResult(s: MediaLibrarySession, b: MediaSession.ControllerInfo, query: String,
+                                           page: Int, pageSize: Int, params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+                val list = search(query).drop(page * pageSize).take(pageSize).map { playable("search", it) }
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
+            }
 
             override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
                                          mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> =
                 Futures.immediateFuture(resolve(mediaItems))
 
+            // tapping one song in a car list plays that whole list, starting at the tapped song
+            override fun onSetMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
+                                         mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long)
+                : ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                val one = mediaItems.singleOrNull()
+                if (one != null && one.mediaId.contains("::")) {
+                    val parent = one.mediaId.substringBeforeLast("::")
+                    val id = one.mediaId.substringAfterLast("::")
+                    val list = songsOf(parent)
+                    val idx = list.indexOfFirst { it.id.toString() == id }
+                    if (idx >= 0) return Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(list.map { it.toMediaItem() }, idx, startPositionMs))
+                }
+                if (one != null && one.requestMetadata.searchQuery != null) {
+                    val list = search(one.requestMetadata.searchQuery!!)
+                    if (list.isNotEmpty()) return Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(list.map { it.toMediaItem() }, 0, 0))
+                }
+                return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(resolve(mediaItems),
+                    if (startIndex == C.INDEX_UNSET) 0 else startIndex, startPositionMs))
+            }
+
             override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo)
                 : ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 val (ids, index, pos) = prefs.loadQueue()
-                val byId = songs().associateBy { it.id.toString() }
-                val items = ids.mapNotNull { byId[it]?.toMediaItem() }
+                val m = byId()
+                val items = ids.mapNotNull { m[it]?.toMediaItem() }
                 val start = if (items.isEmpty()) 0 else index.coerceIn(0, items.lastIndex)
                 return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, start, pos))
             }
@@ -130,6 +239,12 @@ class PlaybackService : MediaLibraryService() {
         session?.run { player.release(); release() }
         session = null
         super.onDestroy()
+    }
+
+    companion object {
+        const val ROOT = "root"
+        const val STYLE_BROWSABLE = "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"
+        const val STYLE_PLAYABLE = "android.media.browse.CONTENT_STYLE_PLAYABLE_HINT"
     }
 }
 

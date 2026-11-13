@@ -54,6 +54,9 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+        <!-- Android Auto: Grove shows up as a media app in the car -->
+        <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
+        <provider android:name=".ArtProvider" android:authorities="com.grove.music.art" android:exported="true" />
         <!-- headset / Bluetooth play button and system "resume" work even when Grove is closed -->
         <receiver android:name="androidx.media3.session.MediaButtonReceiver" android:exported="true">
             <intent-filter>
