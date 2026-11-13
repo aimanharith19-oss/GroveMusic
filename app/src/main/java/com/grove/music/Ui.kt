@@ -177,6 +177,8 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     LaunchedEffect(Unit) { permLauncher.launch(perms) }
 
     var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
+    // keeps each screen's tab, scroll position etc. while you're on another screen
+    val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var forward by remember { mutableStateOf(true) }
     val open: (Screen) -> Unit = { forward = true; stack = stack + it }
     BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
@@ -200,6 +202,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                 Box(Modifier.fillMaxSize().graphicsLayer {
                     rotationY = rot; transformOrigin = TransformOrigin(0f, 0.5f); cameraDistance = 18f * density
                 }) {
+                saved.SaveableStateProvider(if (s == Screen.Home) "home" else "${s::class.simpleName}:${s.hashCode()}") {
                 when (s) {
                     Screen.Home -> HomeScreen(vm, conn, accent, open) { permLauncher.launch(perms) }
                     Screen.Playing -> NowPlayingScreen(vm, conn, prefs, accent, open)
@@ -208,6 +211,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
+                }
                 }
                 }
             }
