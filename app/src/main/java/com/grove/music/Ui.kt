@@ -19,6 +19,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -193,7 +198,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "genres")
+    val pages = listOf("songs", "artists", "albums")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -224,9 +229,6 @@ fun HomeScreen(
                 "artists" -> GroupPage(songs.groupBy { it.artist }, accent) { name, _ -> open(Screen.Artist(name)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
-                }
-                "genres" -> GroupPage(songs.groupBy { it.genre }, accent) { name, list ->
-                    open(Screen.Detail(name, "${list.size} songs", list))
                 }
             }
         }
@@ -380,15 +382,6 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(online, { online = it; prefs.onlineLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
-        var tiles by remember { mutableStateOf(prefs.liveTiles) }
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("tile player", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                Text("full album cover with square Metro tile controls", color = Dim, fontSize = 14.sp)
-            }
-            Switch(tiles, { tiles = it; prefs.liveTiles = it },
-                colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
-        }
         SettingItem("rescan library", "look for new music on this phone", rescan)
         Text("hidden folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
         Text("untick a folder to hide its songs from your collection", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
@@ -528,119 +521,160 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         }
     }
     val format = song?.format ?: md.extras?.getString("fmt").orEmpty()
-    val liveTiles = prefs.liveTiles
     var dir by remember { mutableIntStateOf(1) }
     val goNext = { dir = 1; conn.next() }
     val goPrev = { dir = -1; conn.prev() }
     LaunchedEffect(item.mediaId) { delay(700); dir = 1 } // auto-advance always slides forward
     val artistName = (md.artist ?: "unknown artist").toString()
 
+    // swipe anywhere (except the seek bar) to change song; the cover follows the finger
+    val drag = remember { Animatable(0f) }
+    var exitId by remember { mutableStateOf<String?>(null) }
+    var exitFrom by remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    val curId by rememberUpdatedState(item.mediaId)
+    val nextFn by rememberUpdatedState(goNext)
+    val prevFn by rememberUpdatedState(goPrev)
+    val deep = lerp(accent, Color.Black, 0.74f)
+    val lyricA by animateFloatAsState(if (showLyrics) 1f else 0f, tween(520, easing = WpEase), label = "lyr")
+    val inf = rememberInfiniteTransition(label = "kb")
+    val kb by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse), label = "kb")
 
-    Box(Modifier.fillMaxSize()) {
-    if (liveTiles) TintBackground(accent, 0.22f) else {
-    AnimatedContent(md.artworkUri, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "bg") { u ->
-        Box(Modifier.fillMaxSize()) {
-            if (u != null) AsyncImage(model = u, contentDescription = null, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().blur(48.dp).graphicsLayer { alpha = 0.45f })
-        }
-    }
-    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-        0f to accent.copy(alpha = 0.45f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f))))
-    }
-    val tileDark = lerp(accent, Color.Black, 0.78f)
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = if (liveTiles) 12.dp else 20.dp)) {
-        if (liveTiles) {
-            // Start-screen style header: small caps label, song title in light lowercase
-            Text("NOW PLAYING", color = White.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp, modifier = Modifier.padding(top = 12.dp, start = 2.dp))
-            SlideText(md.title?.toString().orEmpty(), dir) { t ->
-                Text(t.lowercase(), color = White, fontSize = 34.sp, fontWeight = FontWeight.Light, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, bottom = 10.dp))
+    BoxWithConstraints(Modifier.fillMaxSize().background(deep).pointerInput(Unit) {
+        val threshold = size.width * 0.22f
+        detectHorizontalDragGestures(
+            onDragEnd = {
+                val v = drag.value
+                if (abs(v) > threshold) {
+                    exitId = curId; exitFrom = v
+                    scope.launch { drag.snapTo(0f) }
+                    if (v < 0) nextFn() else prevFn()
+                } else scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) }
+            },
+            onDragCancel = { scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) } }
+        ) { ch, d -> ch.consume(); scope.launch { drag.snapTo(drag.value + d) } }
+    }) {
+        val w = constraints.maxWidth.toFloat()
+        // 1 · the album cover fills the whole phone, drifting slowly (Ken Burns)
+        AnimatedContent(item.mediaId to md.artworkUri, contentKey = { it.first }, transitionSpec = {
+            (slideInHorizontally(tween(560, easing = WpEase)) { it * dir } + fadeIn(tween(320))) togetherWith
+                (slideOutHorizontally(tween(480, easing = WpEase)) { -it * dir / 2 } + fadeOut(tween(440)))
+        }, label = "cover") { (id, uri) ->
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val x = when (id) { curId -> drag.value; exitId -> exitFrom; else -> 0f }
+                translationX = x * 0.85f
+                val sc = 1.05f + 0.07f * kb - abs(x) / w * 0.06f; scaleX = sc; scaleY = sc
+                alpha = 1f - abs(x) / w * 0.5f
+            }.background(accent)) {
+                Icon(Icons.Rounded.MusicNote, null, tint = White.copy(alpha = 0.3f), modifier = Modifier.align(Alignment.Center).size(120.dp))
+                if (uri != null) AsyncImage(uri, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             }
-        } else
-        SlideText(artistName to (md.albumTitle ?: "").toString(), dir) { (a, al) ->
-            Column {
-                Text(a.lowercase(), color = White, fontSize = 54.sp,
-                    fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
-                    modifier = Modifier.padding(top = 6.dp).tilt { open(Screen.Artist(a)) }
-                        .wrapContentWidth(Alignment.Start, unbounded = true))
-                Text(al.lowercase(), color = Dim, fontSize = 18.sp, maxLines = 1)
-            }
         }
-        if (!liveTiles) Spacer(Modifier.height(14.dp))
+        // 2 · tint: accent wash over the cover, deep accent-black rising from the bottom
+        Box(Modifier.fillMaxSize().background(accent.copy(alpha = 0.20f)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            0f to Color.Black.copy(alpha = 0.55f), 0.2f to Color.Transparent, 0.42f to Color.Transparent,
+            0.66f to deep.copy(alpha = 0.9f), 1f to deep)))
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = lyricA }.background(deep.copy(alpha = 0.8f)))
 
-        // album art (or live tiles) on the front, lyrics on the back — flips like a Windows Phone tile
-        val flip by animateFloatAsState(if (showLyrics) 180f else 0f, tween(650, easing = WpEase), label = "flip")
-        Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer {
-            rotationY = if (flip < 90f) flip else flip - 180f
-            cameraDistance = 22f * density
-        }) {
-            if (flip >= 90f) {
-                LyricsView(lyrics, lyricsLoading, { posS.longValue }, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
-            } else {
-                SwipeDeck(item.mediaId, dir, { goNext() }, { goPrev() }) {
-                    if (liveTiles) FillGlowArt(md.artworkUri, accent) { showLyrics = true }
-                    else GlowArt(md.artworkUri, accent) { showLyrics = true }
+        // 3 · content
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                Text("NOW PLAYING", color = White.copy(alpha = 0.8f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                Icon(Icons.Rounded.Lyrics, "lyrics", tint = White,
+                    modifier = Modifier.size(42.dp).clip(CircleShape)
+                        .background(if (showLyrics) accent else Color.Black.copy(alpha = 0.25f))
+                        .tilt { showLyrics = !showLyrics }.padding(9.dp))
+            }
+            SlideText(artistName to (md.albumTitle ?: "").toString(), dir) { (a, al) ->
+                Column {
+                    Text(a.lowercase(), color = White, fontSize = 64.sp, fontWeight = FontWeight.Light, letterSpacing = (-2).sp,
+                        maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                        modifier = Modifier.tilt { open(Screen.Artist(a)) }.wrapContentWidth(Alignment.Start, unbounded = true))
+                    Text(al.lowercase(), color = White.copy(alpha = 0.75f), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-        }
-
-        if (liveTiles) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (lyricA > 0.01f) Box(Modifier.fillMaxSize().padding(top = 12.dp)
+                    .graphicsLayer { alpha = lyricA; translationY = (1f - lyricA) * 40.dp.toPx() }) {
+                    LyricsView(lyrics, lyricsLoading, { posS.longValue }, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
+                }
+                if (!showLyrics) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { showLyrics = true } })
+            }
+            UpNext(conn, accent, posS, durS) { goNext() }
+            Spacer(Modifier.height(14.dp))
+            SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(t, color = White, fontSize = 28.sp, fontWeight = FontWeight.Light, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            SeekBar(posS, durS, accent, conn::seekTo)
+            TimeRow(posS, durS)
             Spacer(Modifier.height(8.dp))
-            // progress tile
-            Column(Modifier.fillMaxWidth().background(tileDark).padding(horizontal = 10.dp, vertical = 4.dp)) {
-                SeekBar(posS, durS, accent, conn::seekTo)
-                TimeRow(posS, durS)
-            }
-            Spacer(Modifier.height(8.dp))
-            // control tiles
-            Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ControlTile(Icons.Rounded.Shuffle, if (conn.shuffle.value) accent else tileDark, Modifier.weight(1f)) { conn.toggleShuffle() }
-                ControlTile(Icons.Rounded.SkipPrevious, tileDark, Modifier.weight(1f)) { goPrev() }
-                ControlTile(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, accent, Modifier.weight(1.4f)) { conn.playPause() }
-                ControlTile(Icons.Rounded.SkipNext, tileDark, Modifier.weight(1f)) { goNext() }
-                ControlTile(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                    if (conn.repeatMode.intValue != Player.REPEAT_MODE_OFF) accent else tileDark, Modifier.weight(1f)) { conn.cycleRepeat() }
-            }
-            Text(if (showLyrics) "tiles" else "lyrics", color = if (showLyrics) accent else White.copy(alpha = 0.8f), fontSize = 14.sp,
-                modifier = Modifier.align(Alignment.End).tilt { showLyrics = !showLyrics }.padding(horizontal = 4.dp, vertical = 10.dp))
-        } else {
-        Spacer(Modifier.height(10.dp))
-        SeekBar(posS, durS, accent, conn::seekTo)
-        TimeRow(posS, durS)
-        SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                Text(t, color = White, fontSize = 24.sp, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                ToggleIcon(Icons.Rounded.Shuffle, conn.shuffle.value, accent) { conn.toggleShuffle() }
+                CircleButton(Icons.Rounded.SkipPrevious, 58.dp) { goPrev() }
+                PlayButton(conn.isPlaying.value, accent) { conn.playPause() }
+                CircleButton(Icons.Rounded.SkipNext, 58.dp) { goNext() }
+                ToggleIcon(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
             }
         }
-        conn.upNext.value.take(2).forEach {
-            Text(it.mediaMetadata.title?.toString().orEmpty(), color = Dim, fontSize = 18.sp, fontWeight = FontWeight.Light,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            ToggleIcon(Icons.Rounded.Shuffle, conn.shuffle.value, accent) { conn.toggleShuffle() }
-            CircleButton(Icons.Rounded.SkipPrevious, 58.dp) { goPrev() }
-            CircleButton(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 74.dp) { conn.playPause() }
-            CircleButton(Icons.Rounded.SkipNext, 58.dp) { goNext() }
-            ToggleIcon(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
-        }
-        Text(if (showLyrics) (if (liveTiles) "tiles" else "album art") else "lyrics", color = if (showLyrics) accent else White, fontSize = 16.sp,
-            modifier = Modifier.align(Alignment.CenterHorizontally).tilt { showLyrics = !showLyrics }.padding(12.dp))
-        }
-    }
     }
 }
 
+/** Big play button: accent-filled circle with a soft accent halo. */
 @Composable
-fun ControlTile(icon: ImageVector, color: Color, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.fillMaxHeight().tilt(onClick).background(color), contentAlignment = Alignment.Center) {
-        Icon(icon, null, tint = White, modifier = Modifier.size(28.dp))
+fun PlayButton(playing: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(Modifier.size(80.dp).tilt(onClick), contentAlignment = Alignment.Center) {
+        Box(Modifier.matchParentSize().background(Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent)), CircleShape))
+        Box(Modifier.size(66.dp).clip(CircleShape).background(accent).border(2.dp, White, CircleShape), contentAlignment = Alignment.Center) {
+            AnimatedContent(playing, transitionSpec = { (fadeIn(tween(180)) + scaleIn(tween(220))) togetherWith (fadeOut(tween(120)) + scaleOut(tween(150))) }, label = "pp") { p ->
+                Icon(if (p) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = White, modifier = Modifier.size(36.dp))
+            }
+        }
+    }
+}
+
+/** Up next: a fanned deck of the coming covers with an accent glass card; counts down at the end of a song. */
+@Composable
+fun UpNext(conn: PlayerConnection, accent: Color, posS: State<Long>, durS: State<Long>, onNext: () -> Unit) {
+    val list = conn.upNext.value
+    val n = list.firstOrNull() ?: return
+    val left by remember { derivedStateOf { ((durS.value - posS.value) / 1000).coerceAtLeast(0) } }
+    val soon = durS.value > 0 && left <= 20
+    val glow by animateFloatAsState(if (soon) 1f else 0f, tween(800), label = "soon")
+    Row(Modifier.fillMaxWidth()
+        .background(Brush.horizontalGradient(listOf(accent.copy(alpha = 0.50f + 0.25f * glow), accent.copy(alpha = 0.18f), Color.Transparent)))
+        .tilt(onNext).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(80.dp).height(56.dp)) {
+            val covers = list.take(3)
+            for (i in covers.indices.reversed()) {
+                val sz = 56.dp - 8.dp * i
+                Art(covers[i].mediaMetadata.artworkUri, accent, Modifier.align(Alignment.CenterStart).offset(x = 12.dp * i).size(sz)
+                    .graphicsLayer { alpha = 1f - 0.3f * i; rotationY = -10f * i; cameraDistance = 12f * density }
+                    .border(1.dp, Color.Black.copy(alpha = 0.4f)))
+            }
+        }
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text(if (soon) "NEXT IN 0:%02d".format(left) else "UP NEXT", color = White.copy(alpha = 0.85f), fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold, letterSpacing = 1.5.sp)
+            AnimatedContent(n.mediaId, transitionSpec = {
+                (slideInVertically(tween(400, easing = WpEase)) { it } + fadeIn(tween(300))) togetherWith
+                    (slideOutVertically(tween(300)) { -it } + fadeOut(tween(200)))
+            }, label = "next") { _ ->
+                Column {
+                    Text(n.mediaMetadata.title?.toString().orEmpty(), color = White, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(n.mediaMetadata.artist?.toString().orEmpty().lowercase(), color = White.copy(alpha = 0.65f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Icon(Icons.Rounded.SkipNext, null, tint = White.copy(alpha = 0.8f), modifier = Modifier.size(26.dp))
     }
 }
 
@@ -840,163 +874,3 @@ fun <T> SlideText(value: T, dir: Int, content: @Composable (T) -> Unit) {
     }, label = "slideText") { content(it) }
 }
 
-/** Swipe left/right to change song; the card follows the finger, then flies out as the next one slides in. */
-@Composable
-fun SwipeDeck(id: String, dir: Int, onNext: () -> Unit, onPrev: () -> Unit, content: @Composable () -> Unit) {
-    val drag = remember { Animatable(0f) }
-    var exitId by remember { mutableStateOf<String?>(null) }
-    var exitFrom by remember { mutableFloatStateOf(0f) }
-    val scope = rememberCoroutineScope()
-    val curId by rememberUpdatedState(id)
-    val next by rememberUpdatedState(onNext)
-    val prev by rememberUpdatedState(onPrev)
-    BoxWithConstraints(Modifier.fillMaxSize()
-        .pointerInput(Unit) {
-            val threshold = size.width * 0.22f
-            detectHorizontalDragGestures(
-                onDragEnd = {
-                    val v = drag.value
-                    if (abs(v) > threshold) {
-                        exitId = curId; exitFrom = v
-                        scope.launch { drag.snapTo(0f) }
-                        if (v < 0) next() else prev()
-                    } else scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) }
-                },
-                onDragCancel = { scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) } }
-            ) { ch, d -> ch.consume(); scope.launch { drag.snapTo(drag.value + d) } }
-        }) {
-        val w = constraints.maxWidth
-        AnimatedContent(id, transitionSpec = {
-            (slideInHorizontally(tween(480, easing = WpEase)) { it * dir } + fadeIn(tween(250))) togetherWith
-                (slideOutHorizontally(tween(420, easing = WpEase)) { -it * dir } + fadeOut(tween(380)))
-        }, label = "deck") { shown ->
-            Box(Modifier.fillMaxSize().graphicsLayer {
-                val x = when (shown) { id -> drag.value; exitId -> exitFrom; else -> 0f }
-                translationX = x
-                rotationY = (x / w) * -18f
-                val sc = 1f - (abs(x) / w) * 0.12f; scaleX = sc; scaleY = sc
-                cameraDistance = 16f * density
-            }) { content() }
-        }
-    }
-}
-
-/** Album art with a slowly breathing sunset glow behind it. */
-@Composable
-fun GlowArt(uri: Uri?, accent: Color, onClick: () -> Unit) {
-    val inf = rememberInfiniteTransition(label = "glow")
-    val breathe by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(3800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        // sunset: warm orange core fading through the accent colour into the dark
-        Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f + 0.06f * breathe; scaleX = sc; scaleY = sc; alpha = 0.75f + 0.25f * breathe }
-            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.22f), Color(0xFFE8457A).copy(alpha = 0.14f),
-                accent.copy(alpha = 0.12f), Color.Transparent))))
-        if (uri != null && Build.VERSION.SDK_INT >= 31) AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
-                .graphicsLayer { val sc = 1.05f + 0.03f * breathe; scaleX = sc; scaleY = sc; alpha = 0.45f }
-                .blur(40.dp))
-        Art(uri, accent, Modifier.fillMaxWidth(0.86f).aspectRatio(1f).tilt(onClick))
-    }
-}
-
-/** Album cover filling all the space between header and controls, with a soft sunset glow
- *  around its edges that blends into the background. */
-@Composable
-fun FillGlowArt(uri: Uri?, accent: Color, onClick: () -> Unit) {
-    val inf = rememberInfiniteTransition(label = "glow2")
-    val breathe by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b2")
-    Box(Modifier.fillMaxSize()) {
-        Box(Modifier.matchParentSize().graphicsLayer { alpha = 0.7f + 0.3f * breathe }
-            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.20f), Color(0xFFE8457A).copy(alpha = 0.12f),
-                accent.copy(alpha = 0.10f), Color.Transparent))))
-        if (uri != null && Build.VERSION.SDK_INT >= 31) AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize().graphicsLayer { val sc = 1.03f + 0.02f * breathe; scaleX = sc; scaleY = sc; alpha = 0.42f }
-                .blur(28.dp))
-        Art(uri, accent, Modifier.fillMaxSize().padding(6.dp).tilt(onClick))
-        // soft fade at the bottom so the cover melts into the controls
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.2f).padding(horizontal = 6.dp)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)))))
-    }
-}
-
-/** A Metro live tile: shows its front, then flips over (top-to-bottom) to show its back, and back again. */
-@Composable
-fun LiveTile(modifier: Modifier, startDelay: Long, period: Long = 5200, color: Color, onClick: () -> Unit = {},
-             front: @Composable BoxScope.() -> Unit, back: (@Composable BoxScope.() -> Unit)? = null) {
-    var flipped by remember { mutableStateOf(false) }
-    if (back != null) LaunchedEffect(Unit) { delay(startDelay); while (true) { flipped = !flipped; delay(period) } }
-    val r by animateFloatAsState(if (flipped) 180f else 0f, tween(800, easing = WpEase), label = "tile")
-    Box(modifier.tilt(onClick).graphicsLayer {
-        rotationX = if (r < 90f) r else r - 180f
-        cameraDistance = 14f * density
-    }.background(color).clipToBounds()) {
-        if (r < 90f || back == null) front() else back()
-    }
-}
-
-@Composable
-private fun BoxScope.TileLabel(big: String, small: String? = null) {
-    Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
-        Text(big, color = White, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
-        if (small != null) Text(small, color = White.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-fun TileGrid(md: androidx.media3.common.MediaMetadata, song: Song?, artist: String, info: ArtistInfo?, vm: MusicViewModel,
-             conn: PlayerConnection, accent: Color, format: String, onLyrics: () -> Unit, onArtist: () -> Unit) {
-    val next = conn.upNext.value
-    val others = remember(artist, vm.songs.value) {
-        vm.songs.value.filter { it.artist == artist && it.albumId != song?.albumId }.distinctBy { it.albumId }.take(2)
-    }
-    val dark = lerp(accent, Color.Black, 0.55f)
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val gap = 8.dp
-        val u = minOf((maxWidth - gap * 3) / 4, (maxHeight - gap * 2) / 3)
-        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                // 2x2 album tile: cover ↔ song + album
-                LiveTile(Modifier.size(u * 2 + gap), 2600, color = accent, onClick = onLyrics, front = {
-                    if (md.artworkUri != null) AsyncImage(md.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                }, back = {
-                    Icon(Icons.Rounded.MusicNote, null, tint = White.copy(alpha = 0.25f), modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(48.dp))
-                    TileLabel(md.title?.toString().orEmpty(), (md.albumTitle ?: "").toString().lowercase())
-                })
-                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                    // 2x1 singer tile: photo ↔ name
-                    LiveTile(Modifier.size(u * 2 + gap, u), 4100, color = dark, onClick = onArtist, front = {
-                        if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                        else TileLabel(artist.lowercase())
-                    }, back = { TileLabel(artist.lowercase(), info?.fans?.takeIf { it > 0 }?.let { fans(it) + " fans" } ?: "singer") })
-                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                        val n = next.getOrNull(0)?.mediaMetadata
-                        LiveTile(Modifier.size(u), 5600, color = dark, onClick = { conn.next() }, front = {
-                            if (n?.artworkUri != null) AsyncImage(n.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                            else Icon(Icons.Rounded.SkipNext, null, tint = White, modifier = Modifier.align(Alignment.Center))
-                        }, back = { TileLabel(n?.title?.toString() ?: "end of list", "next") })
-                        LiveTile(Modifier.size(u), 7000, color = accent, onClick = onLyrics, front = {
-                            Icon(Icons.Rounded.Lyrics, null, tint = White, modifier = Modifier.align(Alignment.Center).size(u * 0.42f))
-                        }, back = { TileLabel(format.ifEmpty { "audio" }, "lyrics") })
-                    }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                val n2 = next.getOrNull(1)?.mediaMetadata
-                LiveTile(Modifier.size(u), 3300, color = dark, front = {
-                    if (n2?.artworkUri != null) AsyncImage(n2.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                }, back = { TileLabel(n2?.title?.toString() ?: "", "later") })
-                others.forEachIndexed { i, o ->
-                    LiveTile(Modifier.size(u), 4800L + i * 900, color = accent, front = {
-                        AsyncImage(o.artUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                    }, back = { TileLabel(o.album.lowercase(), "also by ${artist.lowercase()}") })
-                }
-                repeat(3 - others.size) { i ->
-                    LiveTile(Modifier.size(u), 6200L + i * 700, color = if (i % 2 == 0) accent else dark, front = {
-                        Text(if (i == 0) "grove" else "♪", color = White, fontSize = 20.sp, fontWeight = FontWeight.Light,
-                            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
-                    })
-                }
-            }
-        }
-    }
-}
