@@ -50,6 +50,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -103,12 +104,13 @@ val Accents = listOf(
 private val WpEase = CubicBezierEasing(0.1f, 0.9f, 0.2f, 1f)
 
 /** Windows Phone "tilt" press effect: the item tips toward the finger. */
-fun Modifier.tilt(onClick: () -> Unit): Modifier = composed {
+fun Modifier.tilt(onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier = composed {
     var pressed by remember { mutableStateOf(false) }
     var touch by remember { mutableStateOf(Offset.Zero) }
     var sz by remember { mutableStateOf(IntSize.Zero) }
     val p by animateFloatAsState(if (pressed) 1f else 0f, tween(if (pressed) 90 else 260, easing = WpEase), label = "tilt")
     val click by rememberUpdatedState(onClick)
+    val long by rememberUpdatedState(onLongClick)
     this.onSizeChanged { sz = it }
         .graphicsLayer {
             val nx = if (sz.width > 0) (touch.x / sz.width - 0.5f) * 2f else 0f
@@ -120,7 +122,8 @@ fun Modifier.tilt(onClick: () -> Unit): Modifier = composed {
             cameraDistance = 14f * density
         }
         .pointerInput(Unit) {
-            detectTapGestures(onPress = { o -> touch = o; pressed = true; tryAwaitRelease(); pressed = false }, onTap = { click() })
+            detectTapGestures(onPress = { o -> touch = o; pressed = true; tryAwaitRelease(); pressed = false },
+                onLongPress = { long?.invoke() }, onTap = { click() })
         }
 }
 
@@ -151,6 +154,7 @@ sealed interface Screen {
     data object Playing : Screen
     data object Settings : Screen
     data class Artist(val name: String) : Screen
+    data class PlaylistView(val id: String) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
 
@@ -172,7 +176,10 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     val open: (Screen) -> Unit = { forward = true; stack = stack + it }
     BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
 
+    var addTarget by remember { mutableStateOf<List<Long>?>(null) }
+    BackHandler(addTarget != null) { addTarget = null }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
+        CompositionLocalProvider(LocalAddToPlaylist provides { addTarget = it }) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AnimatedContent(
                 targetState = stack.last(),
@@ -194,7 +201,64 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     Screen.Settings -> SettingsScreen(vm, prefs, accent, { accentInt = it; prefs.accent = it }) { vm.load() }
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
+                    is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
+                }
+            }
+            AnimatedVisibility(addTarget != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)).pointerInput(Unit) { detectTapGestures { addTarget = null } })
+            }
+            AnimatedVisibility(addTarget != null, modifier = Modifier.align(Alignment.BottomCenter),
+                enter = slideInVertically(tween(380, easing = WpEase)) { it }, exit = slideOutVertically(tween(260, easing = WpEase)) { it }) {
+                AddToPlaylistSheet(vm.playlists, addTarget ?: emptyList(), accent) { addTarget = null }
+            }
+        }
+        }
+    }
+}
+
+/** Bottom sheet: pick a playlist (or make a new one) for the given songs. */
+@Composable
+fun AddToPlaylistSheet(store: PlaylistStore, songs: List<Long>, accent: Color, onDone: () -> Unit) {
+    var naming by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().heightIn(max = 520.dp).background(lerp(accent, Color.Black, 0.62f))
+        .pointerInput(Unit) { detectTapGestures { } }.navigationBarsPadding().imePadding()
+        .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp)) {
+        Text("add to playlist", color = White, fontSize = 34.sp, fontWeight = FontWeight.Light)
+        Text(if (songs.size == 1) "1 song" else "${songs.size} songs", color = White.copy(alpha = 0.7f), fontSize = 13.sp,
+            modifier = Modifier.padding(bottom = 8.dp))
+        if (naming) {
+            OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("playlist name") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = White, unfocusedBorderColor = White.copy(alpha = 0.5f),
+                    cursorColor = White, focusedTextColor = White, unfocusedTextColor = White))
+            Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("create", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt {
+                    store.create(name, songs); android.widget.Toast.makeText(ctx, "added to ${name.ifBlank { "new playlist" }}", android.widget.Toast.LENGTH_SHORT).show(); onDone()
+                }.padding(horizontal = 20.dp, vertical = 9.dp))
+                Text("cancel", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White).tilt { naming = false }
+                    .padding(horizontal = 20.dp, vertical = 7.dp))
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().tilt { naming = true }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).border(2.dp, White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, tint = White) }
+                Text("new playlist", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+            }
+            LazyColumn {
+                itemsIndexed(store.lists.value, key = { _, p -> p.id }) { _, p ->
+                    Row(Modifier.fillMaxWidth().tilt {
+                        store.add(p.id, songs); android.widget.Toast.makeText(ctx, "added to ${p.name}", android.widget.Toast.LENGTH_SHORT).show(); onDone()
+                    }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp).background(accent), contentAlignment = Alignment.Center) {
+                            Icon(if (p.id == PlaylistStore.LIKED) Icons.Rounded.Favorite else Icons.AutoMirrored.Rounded.QueueMusic, null, tint = White)
+                        }
+                        Column(Modifier.padding(start = 14.dp)) {
+                            Text(p.name, color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${p.ids.size} songs", color = White.copy(alpha = 0.6f), fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
@@ -208,7 +272,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums")
+    val pages = listOf("songs", "artists", "albums", "playlists")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -236,6 +300,7 @@ fun HomeScreen(
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
+                "playlists" -> PlaylistsPage(vm, accent) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
                 }
@@ -307,8 +372,9 @@ fun LetterTile(c: Char, accent: Color) {
 }
 
 @Composable
-fun SongRow(title: String, sub: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().tilt(onClick).padding(vertical = 8.dp)) {
+fun SongRow(title: String, sub: String, songId: Long? = null, onClick: () -> Unit) {
+    val add = LocalAddToPlaylist.current
+    Column(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { { add(listOf(it)) } }, onClick = onClick).padding(vertical = 8.dp)) {
         Text(title, color = White, fontSize = 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(sub, color = Dim, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -339,7 +405,7 @@ fun SongsPage(songs: List<Song>, accent: Color, loading: Boolean, askPerms: () -
             val c = letterOf(s.title)
             if (c != prev) { prev = c; val k = n++; item(key = "h$i") { Box(Modifier.feather(k, intro)) { LetterTile(c, accent) } } }
             val k = n++
-            item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.format}") { onPlay(i) } } }
+            item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.format}", s.id) { onPlay(i) } } }
         }
     }
 }
@@ -400,6 +466,136 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
                 }
             }
         }
+    }
+}
+
+@Composable
+fun PlaylistsPage(vm: MusicViewModel, accent: Color, onOpen: (String) -> Unit) {
+    val store = vm.playlists
+    val intro = rememberIntro()
+    var naming by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            if (naming) Column(Modifier.padding(vertical = 6.dp)) {
+                OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("playlist name") }, modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, unfocusedBorderColor = White.copy(alpha = 0.5f),
+                        cursorColor = White, focusedTextColor = White, unfocusedTextColor = White))
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("create", color = White, fontSize = 18.sp, modifier = Modifier.background(accent)
+                        .tilt { val p = store.create(name); name = ""; naming = false; onOpen(p.id) }.padding(horizontal = 20.dp, vertical = 9.dp))
+                    Text("cancel", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White).tilt { naming = false }
+                        .padding(horizontal = 20.dp, vertical = 7.dp))
+                }
+            } else Text("+ new playlist", color = accent, fontSize = 20.sp,
+                modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { naming = true }.padding(vertical = 8.dp))
+        }
+        itemsIndexed(store.lists.value, key = { _, p -> p.id }) { i, p ->
+            val first = p.ids.firstNotNullOfOrNull { vm.song(it.toString()) }
+            Row(Modifier.feather(i + 1, intro).fillMaxWidth().tilt { onOpen(p.id) }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(72.dp).background(if (p.id == PlaylistStore.LIKED) accent else lerp(accent, Color.Black, 0.4f)),
+                    contentAlignment = Alignment.Center) {
+                    if (p.id == PlaylistStore.LIKED) Icon(Icons.Rounded.Favorite, null, tint = White, modifier = Modifier.size(34.dp))
+                    else if (first != null) Art(first.artUri, accent, Modifier.matchParentSize())
+                    else Icon(Icons.AutoMirrored.Rounded.QueueMusic, null, tint = White, modifier = Modifier.size(32.dp))
+                }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text(p.name.lowercase(), color = White, fontSize = 26.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${p.ids.size} ${if (p.ids.size == 1) "song" else "songs"}", color = Dim, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PlaylistScreen(id: String, vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit, close: () -> Unit) {
+    val store = vm.playlists
+    val p = store.get(id) ?: run { LaunchedEffect(Unit) { close() }; return }
+    val songs = remember(p, vm.songs.value) { p.ids.mapNotNull { vm.song(it.toString()) } }
+    val liked = id == PlaylistStore.LIKED
+    var renaming by remember { mutableStateOf(false) }
+    var name by remember(p.name) { mutableStateOf(p.name) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val play: (Int, Boolean) -> Unit = { i, sh -> if (songs.isNotEmpty()) { conn.playSongs(songs, i, shuffled = sh); open(Screen.Playing) } }
+    val intro = rememberIntro()
+    Box(Modifier.fillMaxSize()) {
+        TintBackground(accent, 0.34f)
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+                item {
+                    Text("PLAYLIST", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp))
+                    if (renaming) Column {
+                        OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = White,
+                                focusedTextColor = White, unfocusedTextColor = White))
+                        Text("save", color = White, fontSize = 18.sp, modifier = Modifier.background(accent)
+                            .tilt { store.rename(id, name); renaming = false }.padding(horizontal = 20.dp, vertical = 9.dp))
+                    } else Text(p.name.lowercase(), color = White, fontSize = 54.sp, fontWeight = FontWeight.Light, maxLines = 1,
+                        softWrap = false, modifier = Modifier.feather(0, intro).wrapContentWidth(Alignment.Start, unbounded = true))
+                    Text("${songs.size} songs" + if (songs.isNotEmpty()) " · slide a song away to remove it" else "",
+                        color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 10.dp))
+                    Row(Modifier.feather(1, intro).padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("play", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt { play(0, false) }
+                            .padding(horizontal = 22.dp, vertical = 10.dp))
+                        Text("shuffle", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White).tilt { play(0, true) }
+                            .padding(horizontal = 22.dp, vertical = 8.dp))
+                    }
+                    if (songs.isEmpty()) Text(if (liked) "tap the heart on the player to like a song" else "long-press any song to add it here",
+                        color = Dim, fontSize = 16.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(vertical = 20.dp))
+                }
+                itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
+                    SwipeToRemove(Modifier.animateItem(), onRemove = { store.remove(id, s.id) }) {
+                        Row(Modifier.fillMaxWidth().tilt { play(i, false) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Art(s.artUri, accent, Modifier.size(50.dp))
+                            Column(Modifier.padding(start = 12.dp)) {
+                                Text(s.title, color = White, fontSize = 20.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${s.artist} · ${s.format}", color = Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                if (!liked) item {
+                    Row(Modifier.padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Text("rename", color = accent, fontSize = 17.sp, modifier = Modifier.tilt { renaming = true }.padding(vertical = 6.dp))
+                        Text(if (confirmDelete) "tap again to delete" else "delete playlist", color = Color(0xFFFF5A4E), fontSize = 17.sp,
+                            modifier = Modifier.tilt { if (confirmDelete) { store.delete(id); close() } else confirmDelete = true }.padding(vertical = 6.dp))
+                    }
+                }
+            }
+            if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }
+        }
+    }
+}
+
+/** Slide a row left or right past a third of the screen to remove it (red bin shows underneath). */
+@Composable
+fun SwipeToRemove(modifier: Modifier, onRemove: () -> Unit, content: @Composable () -> Unit) {
+    val off = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var w by remember { mutableIntStateOf(1) }
+    val remove by rememberUpdatedState(onRemove)
+    Box(modifier.fillMaxWidth().onSizeChanged { w = it.width }) {
+        Row(Modifier.matchParentSize().graphicsLayer { alpha = (abs(off.value) / w * 2.5f).coerceIn(0f, 1f) }
+            .background(Color(0xFFE51400)).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (off.value >= 0) Arrangement.Start else Arrangement.End) {
+            Icon(Icons.Rounded.Delete, "remove", tint = White)
+        }
+        Box(Modifier.fillMaxWidth()
+            .graphicsLayer { translationX = off.value; alpha = 1f - (abs(off.value) / w).coerceIn(0f, 1f) * 0.6f }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (abs(off.value) > w * 0.33f) {
+                                off.animateTo(if (off.value > 0) w.toFloat() else -w.toFloat(), tween(180)); remove()
+                            } else off.animateTo(0f, tween(300, easing = WpEase))
+                        }
+                    },
+                    onDragCancel = { scope.launch { off.animateTo(0f, tween(300, easing = WpEase)) } }
+                ) { ch, d -> ch.consume(); scope.launch { off.snapTo(off.value + d) } }
+            }) { content() }
     }
 }
 
@@ -552,7 +748,7 @@ fun DetailScreen(d: Screen.Detail, conn: PlayerConnection, accent: Color, open: 
             }
             itemsIndexed(d.songs, key = { _, s -> s.id }) { i, s ->
                 Box(Modifier.feather(i + 1, intro)) {
-                    SongRow(s.title, "${s.album} · ${s.format}") { conn.playSongs(d.songs, i); open(Screen.Playing) }
+                    SongRow(s.title, "${s.album} · ${s.format}", s.id) { conn.playSongs(d.songs, i); open(Screen.Playing) }
                 }
             }
         }
@@ -661,6 +857,10 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                 Text("NOW PLAYING", color = White.copy(alpha = 0.8f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                val addTo = LocalAddToPlaylist.current
+                if (song != null) Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, "add to playlist", tint = White,
+                    modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.25f)).tilt { addTo(listOf(song.id)) }.padding(9.dp))
                 Icon(Icons.AutoMirrored.Rounded.QueueMusic, "up next", tint = White,
                     modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.25f)).tilt { showQueue = true }.padding(9.dp))
@@ -692,6 +892,8 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+                    Spacer(Modifier.weight(1f))
+                    if (song != null) LikeButton(vm.playlists, song.id, accent)
                 }
             }
             Spacer(Modifier.height(4.dp))
@@ -781,6 +983,21 @@ fun QueueRow(item: MediaItem, accent: Color, pos: Int, modifier: Modifier, onPla
             if (pos == 0) Text("NEXT", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.background(accent).padding(horizontal = 6.dp, vertical = 2.dp))
         }
+    }
+}
+
+/** Heart: tap to add/remove the song from "liked songs", with a little pop. */
+@Composable
+fun LikeButton(store: PlaylistStore, songId: Long, accent: Color) {
+    val liked = store.lists.value.let { songId in (it.firstOrNull { p -> p.id == PlaylistStore.LIKED }?.ids ?: emptyList()) }
+    val pop = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    Box(Modifier.size(44.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }.clip(CircleShape).tilt {
+        val now = store.toggleLike(songId)
+        if (now) scope.launch { pop.snapTo(0.6f); pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.35f, stiffness = 500f)) }
+    }, contentAlignment = Alignment.Center) {
+        Icon(if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "unlike" else "like",
+            tint = if (liked) Color(0xFFFF4D6D) else White, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -1034,7 +1251,7 @@ fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accen
                 if (singles.isNotEmpty()) item { Discography("singles & EPs", singles, owned, accent, open) }
                 item { SectionLabel("songs", accent, Modifier.padding(top = 18.dp)) }
                 itemsIndexed(songs, key = { _, s -> s.id }) { i, s ->
-                    SongRow(s.title, "${s.album} · ${s.format}") { play(i) }
+                    SongRow(s.title, "${s.album} · ${s.format}", s.id) { play(i) }
                 }
             }
             if (conn.current.value != null) MiniPlayer(conn, accent) { open(Screen.Playing) }

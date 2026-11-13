@@ -100,6 +100,7 @@ object MusicRepository {
 
 class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
+    val playlists = PlaylistStore(app)
     val songs = mutableStateOf<List<Song>>(emptyList())
     /** every folder that contains music, with its song count (hidden ones included) */
     val folders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
