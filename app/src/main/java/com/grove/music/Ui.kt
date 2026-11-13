@@ -18,6 +18,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -375,6 +380,15 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(online, { online = it; prefs.onlineLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
+        var tiles by remember { mutableStateOf(prefs.liveTiles) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("live tiles now playing", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("show album, singer and up next as flipping Metro tiles", color = Dim, fontSize = 14.sp)
+            }
+            Switch(tiles, { tiles = it; prefs.liveTiles = it },
+                colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
         SettingItem("rescan library", "look for new music on this phone", rescan)
         Text("hidden folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
         Text("untick a folder to hide its songs from your collection", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
@@ -493,6 +507,14 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         }
     }
     val format = song?.format ?: md.extras?.getString("fmt").orEmpty()
+    val liveTiles = prefs.liveTiles
+    var dir by remember { mutableIntStateOf(1) }
+    val goNext = { dir = 1; conn.next() }
+    val goPrev = { dir = -1; conn.prev() }
+    LaunchedEffect(item.mediaId) { delay(700); dir = 1 } // auto-advance always slides forward
+    val artistName = (md.artist ?: "unknown artist").toString()
+    var artistInfo by remember(artistName) { mutableStateOf<ArtistInfo?>(null) }
+    LaunchedEffect(artistName) { if (liveTiles) artistInfo = ArtistRepository.load(ctx, artistName) }
 
     Box(Modifier.fillMaxSize()) {
     AnimatedContent(md.artworkUri, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "bg") { u ->
@@ -504,33 +526,30 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
         0f to accent.copy(alpha = 0.45f), 0.5f to Color.Black.copy(alpha = 0.55f), 1f to Color.Black.copy(alpha = 0.9f))))
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
-        val artistName = (md.artist ?: "unknown artist").toString()
-        Text(artistName.lowercase(), color = White, fontSize = 54.sp,
-            fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
-            modifier = Modifier.padding(top = 6.dp).tilt { open(Screen.Artist(artistName)) }
-                .wrapContentWidth(Alignment.Start, unbounded = true))
-        Text((md.albumTitle ?: "").toString().lowercase(), color = Dim, fontSize = 18.sp, maxLines = 1)
+        SlideText(artistName to (md.albumTitle ?: "").toString(), dir) { (a, al) ->
+            Column {
+                Text(a.lowercase(), color = White, fontSize = 54.sp,
+                    fontWeight = FontWeight.Light, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+                    modifier = Modifier.padding(top = 6.dp).tilt { open(Screen.Artist(a)) }
+                        .wrapContentWidth(Alignment.Start, unbounded = true))
+                Text(al.lowercase(), color = Dim, fontSize = 18.sp, maxLines = 1)
+            }
+        }
         Spacer(Modifier.height(14.dp))
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (showLyrics) {
+        // album art (or live tiles) on the front, lyrics on the back — flips like a Windows Phone tile
+        val flip by animateFloatAsState(if (showLyrics) 180f else 0f, tween(650, easing = WpEase), label = "flip")
+        Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer {
+            rotationY = if (flip < 90f) flip else flip - 180f
+            cameraDistance = 22f * density
+        }) {
+            if (flip >= 90f) {
                 LyricsView(lyrics, lyricsLoading, { posS.longValue }, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
             } else {
-                var dx by remember { mutableFloatStateOf(0f) }
-                val follow by animateFloatAsState(dx, if (dx == 0f) tween(380, easing = WpEase) else tween(0), label = "swipe")
-                AnimatedContent(item.mediaId, transitionSpec = {
-                    (fadeIn(tween(300)) + slideInHorizontally(tween(420, easing = WpEase)) { it / 3 }) togetherWith fadeOut(tween(150))
-                }, label = "art") { _ ->
-                    Art(md.artworkUri, accent, Modifier.aspectRatio(1f)
-                        .graphicsLayer { translationX = follow * 0.6f; rotationY = follow / 40f; cameraDistance = 14f * density }
-                        .tilt { showLyrics = true }
-                        .pointerInput(Unit) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { dx = 0f },
-                                onDragCancel = { dx = 0f },
-                                onDragEnd = { if (dx < -120) conn.next() else if (dx > 120) conn.prev(); dx = 0f }
-                            ) { _, d -> dx += d }
-                        })
+                SwipeDeck(item.mediaId, dir, { goNext() }, { goPrev() }) {
+                    if (liveTiles) TileGrid(md, song, artistName, artistInfo, vm, conn, accent, format,
+                        onLyrics = { showLyrics = true }, onArtist = { open(Screen.Artist(artistName)) })
+                    else GlowArt(md.artworkUri, accent) { showLyrics = true }
                 }
             }
         }
@@ -538,11 +557,13 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         Spacer(Modifier.height(10.dp))
         SeekBar(posS, durS, accent, conn::seekTo)
         TimeRow(posS, durS)
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-            Text(md.title?.toString().orEmpty(), color = White, fontSize = 24.sp, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (format.isNotEmpty()) Text(format, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+        SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                Text(t, color = White, fontSize = 24.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+            }
         }
         conn.upNext.value.take(2).forEach {
             Text(it.mediaMetadata.title?.toString().orEmpty(), color = Dim, fontSize = 18.sp, fontWeight = FontWeight.Light,
@@ -552,13 +573,13 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             ToggleIcon(Icons.Rounded.Shuffle, conn.shuffle.value, accent) { conn.toggleShuffle() }
-            CircleButton(Icons.Rounded.SkipPrevious, 58.dp) { conn.prev() }
+            CircleButton(Icons.Rounded.SkipPrevious, 58.dp) { goPrev() }
             CircleButton(if (conn.isPlaying.value) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 74.dp) { conn.playPause() }
-            CircleButton(Icons.Rounded.SkipNext, 58.dp) { conn.next() }
+            CircleButton(Icons.Rounded.SkipNext, 58.dp) { goNext() }
             ToggleIcon(if (conn.repeatMode.intValue == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
                 conn.repeatMode.intValue != Player.REPEAT_MODE_OFF, accent) { conn.cycleRepeat() }
         }
-        Text(if (showLyrics) "album art" else "lyrics", color = if (showLyrics) accent else White, fontSize = 16.sp,
+        Text(if (showLyrics) (if (liveTiles) "tiles" else "album art") else "lyrics", color = if (showLyrics) accent else White, fontSize = 16.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally).tilt { showLyrics = !showLyrics }.padding(12.dp))
     }
     }
@@ -747,4 +768,156 @@ private fun fans(n: Int): String = when {
     n >= 1_000_000 -> "%.1fM".format(n / 1_000_000f)
     n >= 1_000 -> "%.1fK".format(n / 1_000f)
     else -> n.toString()
+}
+
+// ───────────────────────── now playing pieces ─────────────────────────
+
+/** Text that slides in the direction the song changed. */
+@Composable
+fun <T> SlideText(value: T, dir: Int, content: @Composable (T) -> Unit) {
+    AnimatedContent(value, transitionSpec = {
+        (fadeIn(tween(260, delayMillis = 60)) + slideInHorizontally(tween(420, easing = WpEase)) { it / 4 * dir }) togetherWith
+            (fadeOut(tween(160)) + slideOutHorizontally(tween(300, easing = WpEase)) { -it / 4 * dir })
+    }, label = "slideText") { content(it) }
+}
+
+/** Swipe left/right to change song; the card follows the finger, then flies out as the next one slides in. */
+@Composable
+fun SwipeDeck(id: String, dir: Int, onNext: () -> Unit, onPrev: () -> Unit, content: @Composable () -> Unit) {
+    val drag = remember { Animatable(0f) }
+    var exitId by remember { mutableStateOf<String?>(null) }
+    var exitFrom by remember { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    val curId by rememberUpdatedState(id)
+    val next by rememberUpdatedState(onNext)
+    val prev by rememberUpdatedState(onPrev)
+    BoxWithConstraints(Modifier.fillMaxSize()
+        .pointerInput(Unit) {
+            val threshold = size.width * 0.22f
+            detectHorizontalDragGestures(
+                onDragEnd = {
+                    val v = drag.value
+                    if (abs(v) > threshold) {
+                        exitId = curId; exitFrom = v
+                        scope.launch { drag.snapTo(0f) }
+                        if (v < 0) next() else prev()
+                    } else scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) }
+                },
+                onDragCancel = { scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) } }
+            ) { ch, d -> ch.consume(); scope.launch { drag.snapTo(drag.value + d) } }
+        }) {
+        val w = constraints.maxWidth
+        AnimatedContent(id, transitionSpec = {
+            (slideInHorizontally(tween(480, easing = WpEase)) { it * dir } + fadeIn(tween(250))) togetherWith
+                (slideOutHorizontally(tween(420, easing = WpEase)) { -it * dir } + fadeOut(tween(380)))
+        }, label = "deck") { shown ->
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val x = when (shown) { id -> drag.value; exitId -> exitFrom; else -> 0f }
+                translationX = x
+                rotationY = (x / w) * -18f
+                val sc = 1f - (abs(x) / w) * 0.12f; scaleX = sc; scaleY = sc
+                cameraDistance = 16f * density
+            }) { content() }
+        }
+    }
+}
+
+/** Album art with a slowly breathing sunset glow behind it. */
+@Composable
+fun GlowArt(uri: Uri?, accent: Color, onClick: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "glow")
+    val breathe by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(3800, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b")
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // sunset: warm orange core fading through the accent colour into the dark
+        Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f + 0.06f * breathe; scaleX = sc; scaleY = sc; alpha = 0.75f + 0.25f * breathe }
+            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.55f), Color(0xFFE8457A).copy(alpha = 0.35f),
+                accent.copy(alpha = 0.25f), Color.Transparent))))
+        if (uri != null && Build.VERSION.SDK_INT >= 31) AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
+                .graphicsLayer { val sc = 1.08f + 0.05f * breathe; scaleX = sc; scaleY = sc; alpha = 0.8f }
+                .blur(40.dp))
+        Art(uri, accent, Modifier.fillMaxWidth(0.86f).aspectRatio(1f).tilt(onClick))
+    }
+}
+
+/** A Metro live tile: shows its front, then flips over (top-to-bottom) to show its back, and back again. */
+@Composable
+fun LiveTile(modifier: Modifier, startDelay: Long, period: Long = 5200, color: Color, onClick: () -> Unit = {},
+             front: @Composable BoxScope.() -> Unit, back: (@Composable BoxScope.() -> Unit)? = null) {
+    var flipped by remember { mutableStateOf(false) }
+    if (back != null) LaunchedEffect(Unit) { delay(startDelay); while (true) { flipped = !flipped; delay(period) } }
+    val r by animateFloatAsState(if (flipped) 180f else 0f, tween(800, easing = WpEase), label = "tile")
+    Box(modifier.tilt(onClick).graphicsLayer {
+        rotationX = if (r < 90f) r else r - 180f
+        cameraDistance = 14f * density
+    }.background(color).clipToBounds()) {
+        if (r < 90f || back == null) front() else back()
+    }
+}
+
+@Composable
+private fun BoxScope.TileLabel(big: String, small: String? = null) {
+    Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+        Text(big, color = White, fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 20.sp)
+        if (small != null) Text(small, color = White.copy(alpha = 0.8f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+fun TileGrid(md: androidx.media3.common.MediaMetadata, song: Song?, artist: String, info: ArtistInfo?, vm: MusicViewModel,
+             conn: PlayerConnection, accent: Color, format: String, onLyrics: () -> Unit, onArtist: () -> Unit) {
+    val next = conn.upNext.value
+    val others = remember(artist, vm.songs.value) {
+        vm.songs.value.filter { it.artist == artist && it.albumId != song?.albumId }.distinctBy { it.albumId }.take(2)
+    }
+    val dark = lerp(accent, Color.Black, 0.35f)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val gap = 8.dp
+        val u = minOf((maxWidth - gap * 3) / 4, (maxHeight - gap * 2) / 3)
+        Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                // 2x2 album tile: cover ↔ song + album
+                LiveTile(Modifier.size(u * 2 + gap), 2600, color = accent, onClick = onLyrics, front = {
+                    if (md.artworkUri != null) AsyncImage(md.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                }, back = {
+                    Icon(Icons.Rounded.MusicNote, null, tint = White.copy(alpha = 0.25f), modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(48.dp))
+                    TileLabel(md.title?.toString().orEmpty(), (md.albumTitle ?: "").toString().lowercase())
+                })
+                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                    // 2x1 singer tile: photo ↔ name
+                    LiveTile(Modifier.size(u * 2 + gap, u), 4100, color = dark, onClick = onArtist, front = {
+                        if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                        else TileLabel(artist.lowercase())
+                    }, back = { TileLabel(artist.lowercase(), info?.fans?.takeIf { it > 0 }?.let { fans(it) + " fans" } ?: "singer") })
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        val n = next.getOrNull(0)?.mediaMetadata
+                        LiveTile(Modifier.size(u), 5600, color = dark, onClick = { conn.next() }, front = {
+                            if (n?.artworkUri != null) AsyncImage(n.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                            else Icon(Icons.Rounded.SkipNext, null, tint = White, modifier = Modifier.align(Alignment.Center))
+                        }, back = { TileLabel(n?.title?.toString() ?: "end of list", "next") })
+                        LiveTile(Modifier.size(u), 7000, color = accent, onClick = onLyrics, front = {
+                            Icon(Icons.Rounded.Lyrics, null, tint = White, modifier = Modifier.align(Alignment.Center).size(u * 0.42f))
+                        }, back = { TileLabel(format.ifEmpty { "audio" }, "lyrics") })
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                val n2 = next.getOrNull(1)?.mediaMetadata
+                LiveTile(Modifier.size(u), 3300, color = dark, front = {
+                    if (n2?.artworkUri != null) AsyncImage(n2.artworkUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                }, back = { TileLabel(n2?.title?.toString() ?: "", "later") })
+                others.forEachIndexed { i, o ->
+                    LiveTile(Modifier.size(u), 4800L + i * 900, color = accent, front = {
+                        AsyncImage(o.artUri, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    }, back = { TileLabel(o.album.lowercase(), "also by ${artist.lowercase()}") })
+                }
+                repeat(3 - others.size) { i ->
+                    LiveTile(Modifier.size(u), 6200L + i * 700, color = if (i % 2 == 0) accent else dark, front = {
+                        Text(if (i == 0) "grove" else "♪", color = White, fontSize = 20.sp, fontWeight = FontWeight.Light,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
+                    })
+                }
+            }
+        }
+    }
 }

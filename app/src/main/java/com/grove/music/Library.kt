@@ -141,6 +141,9 @@ class Prefs(ctx: Context) {
     var onlineLyrics: Boolean
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
+    var liveTiles: Boolean
+        get() = sp.getBoolean("live_tiles", false)
+        set(v) = sp.edit().putBoolean("live_tiles", v).apply()
     var hiddenFolders: Set<String>
         get() = sp.getStringSet("hidden_folders", emptySet())!!.toSet()
         set(v) = sp.edit().putStringSet("hidden_folders", v).apply()
