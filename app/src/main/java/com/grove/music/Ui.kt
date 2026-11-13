@@ -383,8 +383,8 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
         var tiles by remember { mutableStateOf(prefs.liveTiles) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("live tiles now playing", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                Text("show album, singer and up next as flipping Metro tiles", color = Dim, fontSize = 14.sp)
+                Text("tile player", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("full album cover with square Metro tile controls", color = Dim, fontSize = 14.sp)
             }
             Switch(tiles, { tiles = it; prefs.liveTiles = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
@@ -534,8 +534,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     val goPrev = { dir = -1; conn.prev() }
     LaunchedEffect(item.mediaId) { delay(700); dir = 1 } // auto-advance always slides forward
     val artistName = (md.artist ?: "unknown artist").toString()
-    var artistInfo by remember(artistName) { mutableStateOf<ArtistInfo?>(null) }
-    LaunchedEffect(artistName) { if (liveTiles) artistInfo = ArtistRepository.load(ctx, artistName) }
+
 
     Box(Modifier.fillMaxSize()) {
     if (liveTiles) TintBackground(accent, 0.22f) else {
@@ -580,8 +579,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 LyricsView(lyrics, lyricsLoading, { posS.longValue }, accent, conn::seekTo, { pickLrc.launch(arrayOf("*/*")) }, Modifier.fillMaxSize())
             } else {
                 SwipeDeck(item.mediaId, dir, { goNext() }, { goPrev() }) {
-                    if (liveTiles) TileGrid(md, song, artistName, artistInfo, vm, conn, accent, format,
-                        onLyrics = { showLyrics = true }, onArtist = { open(Screen.Artist(artistName)) })
+                    if (liveTiles) FillGlowArt(md.artworkUri, accent) { showLyrics = true }
                     else GlowArt(md.artworkUri, accent) { showLyrics = true }
                 }
             }
@@ -891,13 +889,33 @@ fun GlowArt(uri: Uri?, accent: Color, onClick: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         // sunset: warm orange core fading through the accent colour into the dark
         Box(Modifier.fillMaxSize().graphicsLayer { val sc = 1f + 0.06f * breathe; scaleX = sc; scaleY = sc; alpha = 0.75f + 0.25f * breathe }
-            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.55f), Color(0xFFE8457A).copy(alpha = 0.35f),
-                accent.copy(alpha = 0.25f), Color.Transparent))))
+            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.22f), Color(0xFFE8457A).copy(alpha = 0.14f),
+                accent.copy(alpha = 0.12f), Color.Transparent))))
         if (uri != null && Build.VERSION.SDK_INT >= 31) AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxWidth(0.94f).aspectRatio(1f)
-                .graphicsLayer { val sc = 1.08f + 0.05f * breathe; scaleX = sc; scaleY = sc; alpha = 0.8f }
+                .graphicsLayer { val sc = 1.05f + 0.03f * breathe; scaleX = sc; scaleY = sc; alpha = 0.45f }
                 .blur(40.dp))
         Art(uri, accent, Modifier.fillMaxWidth(0.86f).aspectRatio(1f).tilt(onClick))
+    }
+}
+
+/** Album cover filling all the space between header and controls, with a soft sunset glow
+ *  around its edges that blends into the background. */
+@Composable
+fun FillGlowArt(uri: Uri?, accent: Color, onClick: () -> Unit) {
+    val inf = rememberInfiniteTransition(label = "glow2")
+    val breathe by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(4200, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "b2")
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.matchParentSize().graphicsLayer { alpha = 0.7f + 0.3f * breathe }
+            .background(Brush.radialGradient(listOf(Color(0xFFFF8A3D).copy(alpha = 0.20f), Color(0xFFE8457A).copy(alpha = 0.12f),
+                accent.copy(alpha = 0.10f), Color.Transparent))))
+        if (uri != null && Build.VERSION.SDK_INT >= 31) AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize().graphicsLayer { val sc = 1.03f + 0.02f * breathe; scaleX = sc; scaleY = sc; alpha = 0.42f }
+                .blur(28.dp))
+        Art(uri, accent, Modifier.fillMaxSize().padding(6.dp).tilt(onClick))
+        // soft fade at the bottom so the cover melts into the controls
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.2f).padding(horizontal = 6.dp)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)))))
     }
 }
 
