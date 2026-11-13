@@ -204,6 +204,9 @@ class Prefs(ctx: Context) {
     fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
     fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
         sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
+    var carLyrics: Boolean
+        get() = sp.getBoolean("car_lyrics", true)
+        set(v) = sp.edit().putBoolean("car_lyrics", v).apply()
     var preferFlac: Boolean
         get() = sp.getBoolean("prefer_flac", true)
         set(v) = sp.edit().putBoolean("prefer_flac", v).apply()

@@ -23,6 +23,8 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.google.common.collect.ImmutableList
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -101,6 +103,60 @@ class PlaybackService : MediaLibraryService() {
         else -> songsOf(parent).map { playable(parent, it) }
     }
 
+    // ── live lyrics in Android Auto ─────────────────────────────────────────
+    // The car can't show custom screens, so while Auto is connected the line being sung
+    // replaces the artist line under the song title (restored when the car disconnects).
+    private val scope = kotlinx.coroutines.MainScope()
+    private var cars = 0
+    private var lyricJob: kotlinx.coroutines.Job? = null
+
+    private fun isCar(c: MediaSession.ControllerInfo) =
+        c.packageName.contains("gearhead") || c.packageName.contains("android.car") || c.packageName.contains("automotive")
+
+    private fun startCarLyrics(player: Player) {
+        if (lyricJob?.isActive == true || !Prefs(this).carLyrics) return
+        lyricJob = scope.launch {
+            var forId: String? = null
+            var lyrics: Lyrics? = null
+            var shown: String? = null
+            while (true) {
+                val item = player.currentMediaItem
+                if (item != null) {
+                    if (item.mediaId != forId) {
+                        forId = item.mediaId; shown = null
+                        val song = byId()[item.mediaId]
+                        lyrics = LyricsRepository.load(this@PlaybackService, trackKey(item, song, player.duration.coerceAtLeast(0)))
+                    }
+                    val l = lyrics
+                    val line = if (l != null && l.synced) {
+                        val i = l.lines.indexOfLast { it.time <= player.currentPosition + 200 }
+                        l.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() }?.let { "♪ $it" }
+                    } else null
+                    val artist = byId()[item.mediaId]?.artist ?: item.mediaMetadata.artist?.toString()
+                    val want = line ?: artist
+                    if (want != shown && want != null) {
+                        shown = want
+                        setArtistLine(player, want)
+                    }
+                }
+                kotlinx.coroutines.delay(250)
+            }
+        }
+    }
+
+    private fun stopCarLyrics(player: Player) {
+        lyricJob?.cancel(); lyricJob = null
+        val item = player.currentMediaItem ?: return
+        byId()[item.mediaId]?.artist?.let { setArtistLine(player, it) }
+    }
+
+    private fun setArtistLine(player: Player, text: String) {
+        val idx = player.currentMediaItemIndex
+        val item = player.currentMediaItem ?: return
+        if (item.mediaMetadata.artist?.toString() == text) return
+        player.replaceMediaItem(idx, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setArtist(text).build()).build())
+    }
+
     private var lastSearch: List<Song> = emptyList()
     private fun search(q: String): List<Song> {
         val t = q.trim().lowercase()
@@ -154,6 +210,15 @@ class PlaybackService : MediaLibraryService() {
         ).build()
 
         session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
+            override fun onConnect(s: MediaSession, c: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+                if (isCar(c)) { cars++; startCarLyrics(s.player) }
+                return super.onConnect(s, c)
+            }
+
+            override fun onDisconnected(s: MediaSession, c: MediaSession.ControllerInfo) {
+                if (isCar(c)) { cars = (cars - 1).coerceAtLeast(0); if (cars == 0) stopCarLyrics(s.player) }
+            }
+
             override fun onGetLibraryRoot(s: MediaLibrarySession, b: MediaSession.ControllerInfo, params: LibraryParams?)
                 : ListenableFuture<LibraryResult<MediaItem>> {
                 library = null // pick up new songs / playlists
@@ -236,6 +301,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        scope.cancel()
         session?.run { player.release(); release() }
         session = null
         super.onDestroy()

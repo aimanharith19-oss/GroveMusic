@@ -774,6 +774,15 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(online, { online = it; prefs.onlineLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
+        var carLyrics by remember { mutableStateOf(prefs.carLyrics) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("lyrics in Android Auto", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("show the line being sung under the song title in the car", color = Dim, fontSize = 14.sp)
+            }
+            Switch(carLyrics, { carLyrics = it; prefs.carLyrics = it },
+                colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
         // ── artist info
         val sync = vm.artistSync.value
         val tick = vm.artistTick.intValue
@@ -954,7 +963,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     val goNext = { dir = 1; conn.next() }
     val goPrev = { dir = -1; conn.prev() }
     LaunchedEffect(item.mediaId) { delay(700); dir = 1 } // auto-advance always slides forward
-    val artistName = (md.artist ?: "unknown artist").toString()
+    val artistName = (song?.artist ?: md.artist ?: "unknown artist").toString()
 
     // swipe anywhere (except the seek bar) to change song; the cover follows the finger
     val drag = remember { Animatable(0f) }
