@@ -17,14 +17,38 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import com.google.common.collect.ImmutableList
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 
-/** Background playback (ExoPlayer decodes MP3, AAC, OGG, OPUS, WAV and FLAC incl. 24-bit hi-res). */
-class PlaybackService : MediaSessionService() {
-    private var session: MediaSession? = null
+/**
+ * Background playback (ExoPlayer decodes MP3, AAC, OGG, OPUS, WAV and FLAC incl. 24-bit hi-res).
+ * Runs as a MediaLibraryService so Android treats Grove as a real music app: system media controls,
+ * lock screen, Bluetooth / headset buttons, playback resumption after reboot, Android Auto and other
+ * media browsers can all see and control it.
+ */
+class PlaybackService : MediaLibraryService() {
+    private var session: MediaLibrarySession? = null
+    private var library: List<Song>? = null
+
+    private fun songs(): List<Song> = library ?: runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
+        .let { all -> val h = Prefs(this).hiddenFolders; all.filter { it.folder !in h } }.also { library = it }
+
+    private fun resolve(items: List<MediaItem>): MutableList<MediaItem> {
+        val byId by lazy { songs().associateBy { it.id.toString() } }
+        return items.mapNotNull { item ->
+            when {
+                item.requestMetadata.mediaUri != null -> item.buildUpon().setUri(item.requestMetadata.mediaUri).build()
+                item.localConfiguration != null -> item
+                else -> byId[item.mediaId]?.toMediaItem()
+            }
+        }.toMutableList()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -34,28 +58,68 @@ class PlaybackService : MediaSessionService() {
                 true
             )
             .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
+        val prefs = Prefs(this)
+        // remember the queue so Android can offer "resume" in the media controls later
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+                prefs.saveQueue(ids, player.currentMediaItemIndex, 0)
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlaying && player.mediaItemCount > 0) prefs.saveQueuePosition(player.currentMediaItemIndex, player.currentPosition)
+            }
+        })
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        session = MediaSession.Builder(this, player)
-            .setSessionActivity(open)
-            .setCallback(object : MediaSession.Callback {
-                override fun onAddMediaItems(
-                    mediaSession: MediaSession,
-                    controller: MediaSession.ControllerInfo,
-                    mediaItems: MutableList<MediaItem>
-                ): ListenableFuture<MutableList<MediaItem>> = Futures.immediateFuture(
-                    mediaItems.map { item ->
-                        item.requestMetadata.mediaUri?.let { item.buildUpon().setUri(it).build() } ?: item
-                    }.toMutableList()
+        val root = MediaItem.Builder().setMediaId("root").setMediaMetadata(
+            MediaMetadata.Builder().setTitle("Grove Music").setIsBrowsable(true).setIsPlayable(false)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
+        ).build()
+        val songsFolder = MediaItem.Builder().setMediaId("songs").setMediaMetadata(
+            MediaMetadata.Builder().setTitle("All songs").setIsBrowsable(true).setIsPlayable(false)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
+        ).build()
+
+        session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
+            override fun onGetLibraryRoot(s: MediaLibrarySession, b: MediaSession.ControllerInfo, params: LibraryParams?) =
+                Futures.immediateFuture(LibraryResult.ofItem(root, params))
+
+            override fun onGetChildren(s: MediaLibrarySession, b: MediaSession.ControllerInfo, parentId: String,
+                                       page: Int, pageSize: Int, params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+                val list: List<MediaItem> = when (parentId) {
+                    "root" -> listOf(songsFolder)
+                    "songs" -> songs().drop(page * pageSize).take(pageSize).map { it.toMediaItem() }
+                    else -> emptyList()
+                }
+                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
+            }
+
+            override fun onGetItem(s: MediaLibrarySession, b: MediaSession.ControllerInfo, mediaId: String) =
+                Futures.immediateFuture(
+                    songs().firstOrNull { it.id.toString() == mediaId }?.let { LibraryResult.ofItem(it.toMediaItem(), null) }
+                        ?: LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
                 )
-            })
-            .build()
+
+            override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
+                                         mediaItems: MutableList<MediaItem>): ListenableFuture<MutableList<MediaItem>> =
+                Futures.immediateFuture(resolve(mediaItems))
+
+            override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo)
+                : ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                val (ids, index, pos) = prefs.loadQueue()
+                val byId = songs().associateBy { it.id.toString() }
+                val items = ids.mapNotNull { byId[it]?.toMediaItem() }
+                val start = if (items.isEmpty()) 0 else index.coerceIn(0, items.lastIndex)
+                return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, start, pos))
+            }
+        }).setSessionActivity(open).build()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = session?.player

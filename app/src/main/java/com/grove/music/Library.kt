@@ -141,6 +141,11 @@ class Prefs(ctx: Context) {
     var onlineLyrics: Boolean
         get() = sp.getBoolean("online_lyrics", true)
         set(v) = sp.edit().putBoolean("online_lyrics", v).apply()
+    fun saveQueue(ids: List<String>, index: Int, pos: Long) =
+        sp.edit().putString("q_ids", ids.joinToString(",")).putInt("q_idx", index).putLong("q_pos", pos).apply()
+    fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
+    fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
+        sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
     var liveTiles: Boolean
         get() = sp.getBoolean("live_tiles", false)
         set(v) = sp.edit().putBoolean("live_tiles", v).apply()

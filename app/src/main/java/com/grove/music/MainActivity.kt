@@ -46,6 +46,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handle(i: Intent?) {
         if (i?.action == Intent.ACTION_VIEW) i.data?.let { conn.playUri(it) }
+        // "Play <song/artist> on Grove Music" from Google Assistant / system search
+        if (i?.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
+            val q = i.getStringExtra(android.app.SearchManager.QUERY).orEmpty().trim().lowercase()
+            Thread {
+                val all = runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
+                val hit = if (q.isEmpty()) all else all.filter {
+                    it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) || it.album.lowercase().contains(q)
+                }
+                runOnUiThread { if (hit.isNotEmpty()) conn.playSongs(hit, 0, shuffled = q.isEmpty()) }
+            }.start()
+        }
     }
 
     override fun onDestroy() {
