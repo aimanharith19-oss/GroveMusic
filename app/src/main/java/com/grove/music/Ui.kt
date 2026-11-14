@@ -1222,7 +1222,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                     Text(a.lowercase(), color = White, fontSize = 64.sp, fontWeight = FontWeight.Light, letterSpacing = (-2).sp,
                         maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
                         modifier = Modifier.tilt { open(Screen.Artist(a)) }.wrapContentWidth(Alignment.Start, unbounded = true))
-                    Text(al.lowercase(), color = White.copy(alpha = 0.75f), fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(al.lowercase(), color = White.copy(alpha = 0.75f), fontSize = 18.sp, lineHeight = 22.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -1236,8 +1236,9 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             Spacer(Modifier.height(14.dp))
             SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(t, color = White, fontSize = 28.sp, fontWeight = FontWeight.Light, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    // long names wrap (and shrink a little) so the whole title is visible
+                    Text(t, color = White, fontSize = if (t.length > 40) 22.sp else 28.sp, lineHeight = if (t.length > 40) 26.sp else 32.sp,
+                        fontWeight = FontWeight.Light, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
                     Spacer(Modifier.weight(1f))
