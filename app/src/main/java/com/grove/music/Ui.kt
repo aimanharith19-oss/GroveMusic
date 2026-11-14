@@ -42,6 +42,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -620,11 +621,58 @@ fun PivotHeaders(pages: List<String>, pos: () -> Float, accent: Color, onSelect:
     }
 }
 
+/** Windows Phone jump list: every letter in a grid; letters you have are lit in the accent colour. */
+@Composable
+fun JumpGrid(have: Set<Char>, accent: Color, onPick: (Char) -> Unit, onDismiss: () -> Unit) {
+    val letters = listOf('#') + ('a'..'z')
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+        Column(Modifier.align(Alignment.Center).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            letters.chunked(4).forEachIndexed { r, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEachIndexed { i, c ->
+                        val on = c in have
+                        Box(Modifier.feather(r * 4 + i, true).size(72.dp)
+                            .background(if (on) accent else Color.White.copy(alpha = 0.08f))
+                            .then(if (on) Modifier.tilt { onPick(c) } else Modifier),
+                            contentAlignment = Alignment.BottomStart) {
+                            Text(c.toString(), color = if (on) White else White.copy(alpha = 0.3f), fontSize = 34.sp,
+                                fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** List + jump grid: headers register their item index, tapping a header opens the grid. */
+@Composable
+fun JumpList(accent: Color, content: @Composable (state: LazyListState, headers: MutableMap<Char, Int>) -> Unit) {
+    val state = rememberLazyListState()
+    val headers = remember { mutableMapOf<Char, Int>() }
+    var open by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    BackHandler(open) { open = false }
+    Box(Modifier.fillMaxSize()) {
+        CompositionLocalProvider(LocalJump provides { open = true }) { content(state, headers) }
+        AnimatedVisibility(open, enter = fadeIn(tween(180)), exit = fadeOut(tween(160))) {
+            JumpGrid(headers.keys.toSet(), accent, onPick = { c ->
+                open = false; headers[c]?.let { scope.launch { state.scrollToItem(it) } }
+            }) { open = false }
+        }
+    }
+}
+
 private fun letterOf(s: String): Char = s.firstOrNull()?.lowercaseChar()?.takeIf { it.isLetter() } ?: '#'
+
+/** Tapping a letter tile opens the Windows Phone jump grid. */
+val LocalJump = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 @Composable
 fun LetterTile(c: Char, accent: Color) {
-    Box(Modifier.padding(top = 14.dp, bottom = 6.dp).size(50.dp).background(accent), contentAlignment = Alignment.BottomStart) {
+    val jump = LocalJump.current
+    Box(Modifier.padding(top = 14.dp, bottom = 6.dp).size(50.dp).then(if (jump != null) Modifier.tilt(jump) else Modifier)
+        .background(accent), contentAlignment = Alignment.BottomStart) {
         Text(c.toString(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 6.dp))
     }
 }
@@ -654,17 +702,20 @@ fun SongsPage(songs: List<Song>, accent: Color, loading: Boolean, askPerms: () -
         return
     }
     val intro = rememberIntro()
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+    JumpList(accent) { state, headers ->
+    LazyColumn(state = state, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        headers.clear(); var idx = 1
         item { Text("shuffle all (${songs.size})", color = accent, fontSize = 20.sp,
             modifier = Modifier.feather(0, intro).fillMaxWidth().tilt(onShuffle).padding(vertical = 8.dp)) }
         var prev: Char? = null
         var n = 1
         songs.forEachIndexed { i, s ->
             val c = letterOf(s.title)
-            if (c != prev) { prev = c; val k = n++; item(key = "h$i") { Box(Modifier.feather(k, intro)) { LetterTile(c, accent) } } }
-            val k = n++
+            if (c != prev) { prev = c; headers[c] = idx++; val k = n++; item(key = "h$i") { Box(Modifier.feather(k, intro)) { LetterTile(c, accent) } } }
+            val k = n++; idx++
             item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.format}", s.id) { onPlay(i) } } }
         }
+    }
     }
 }
 
@@ -703,7 +754,9 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
     val tick = vm.artistTick.intValue
     val intro = rememberIntro()
     val sync = vm.artistSync.value
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+    JumpList(accent) { state, headers ->
+    LazyColumn(state = state, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        headers.clear(); var idx = if (sync != null) 1 else 0
         if (sync != null) item {
             Column(Modifier.padding(bottom = 6.dp)) {
                 Text("downloading artist info ${sync.first} of ${sync.second}", color = Dim, fontSize = 13.sp)
@@ -716,8 +769,8 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
         var n = 0
         groups.forEachIndexed { i, (name, count) ->
             val c = letterOf(name)
-            if (c != prev) { prev = c; val j = n++; item(key = "h$i") { Box(Modifier.feather(j, intro)) { LetterTile(c, accent) } } }
-            val j = n++
+            if (c != prev) { prev = c; headers[c] = idx++; val j = n++; item(key = "h$i") { Box(Modifier.feather(j, intro)) { LetterTile(c, accent) } } }
+            val j = n++; idx++
             item(key = "a$name") {
                 val info = remember(name, tick) { ArtistRepository.cached(ctx, name) }
                 Row(Modifier.feather(j, intro).fillMaxWidth().tilt { onOpen(name) }.padding(vertical = 5.dp),
@@ -734,6 +787,7 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
             }
         }
     }
+}
 }
 
 @Composable

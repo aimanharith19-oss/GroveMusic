@@ -32,8 +32,19 @@ object Radio {
         // seeds: prefer liked songs, then anything; one per main singer
         val pool = (likedSongs.shuffled(rnd) + all.shuffled(rnd))
         val seeds = pool.distinctBy { ArtistRepository.key(ArtistRepository.primary(it.artist)) }.take(3)
-        return seeds.map { seed ->
+        val mixes = seeds.map { seed ->
             "${ArtistRepository.primary(seed.artist).lowercase()} radio" to build(seed, all, 20, rnd)
-        }
+        }.toMutableList()
+        // genre mixes: two of your genres with enough songs
+        all.filter { it.genre.isNotBlank() && it.genre != "unknown genre" }.groupBy { it.genre.lowercase() }
+            .filter { it.value.size >= 8 }.entries.shuffled(rnd).take(2)
+            .forEach { (g, l) -> mixes += "$g mix" to l.shuffled(rnd).take(20) }
+        // decade + single-year mixes
+        val dated = all.filter { it.year > 0 }
+        dated.groupBy { it.year / 10 * 10 }.filter { it.value.size >= 8 }.entries.shuffled(rnd).firstOrNull()
+            ?.let { (d, l) -> mixes += "${d}s mix" to l.shuffled(rnd).take(20) }
+        dated.groupBy { it.year }.filter { it.value.size >= 8 }.entries.shuffled(rnd).firstOrNull()
+            ?.let { (y, l) -> mixes += "best of $y" to l.shuffled(rnd).take(20) }
+        return mixes
     }
 }

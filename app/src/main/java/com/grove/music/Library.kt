@@ -29,6 +29,7 @@ data class Song(
     val mime: String?,
     val displayName: String,
     val genre: String,
+    val year: Int = 0,
 ) {
     val folder: String get() = path?.substringBeforeLast('/', "")?.ifEmpty { null } ?: "unknown folder"
     val artUri: Uri get() = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
@@ -66,7 +67,7 @@ object MusicRepository {
             MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.MIME_TYPE,
-            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.YEAR,
         ) + (if (android.os.Build.VERSION.SDK_INT >= 30) arrayOf("genre") else emptyArray())
         val sel = "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.MIME_TYPE} LIKE '%flac%'"
         val out = ArrayList<Song>()
@@ -89,6 +90,7 @@ object MusicRepository {
                     mime = s(MediaStore.Audio.Media.MIME_TYPE),
                     displayName = name,
                     genre = s("genre").clean("unknown genre"),
+                    year = l(MediaStore.Audio.Media.YEAR).toInt().takeIf { it in 1900..2100 } ?: 0,
                 )
             }
         }
