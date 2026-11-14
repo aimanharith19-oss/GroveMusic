@@ -21,12 +21,6 @@
             android:launchMode="singleTask"
             android:screenOrientation="portrait">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <!-- marks Grove as a music player app for Android -->
-                <category android:name="android.intent.category.APP_MUSIC" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.MUSIC_PLAYER" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -44,6 +38,167 @@
                 <data android:mimeType="application/ogg" />
             </intent-filter>
         </activity>
+        <!-- one launcher entry per accent colour; only the one matching the app theme is enabled -->
+        <activity-alias android:name=".Icon0" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_0" android:roundIcon="@mipmap/ic_launcher_0" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon1" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_1" android:roundIcon="@mipmap/ic_launcher_1" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon2" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_2" android:roundIcon="@mipmap/ic_launcher_2" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon3" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_3" android:roundIcon="@mipmap/ic_launcher_3" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon4" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_4" android:roundIcon="@mipmap/ic_launcher_4" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon5" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_5" android:roundIcon="@mipmap/ic_launcher_5" android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon6" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_6" android:roundIcon="@mipmap/ic_launcher_6" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon7" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_7" android:roundIcon="@mipmap/ic_launcher_7" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon8" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_8" android:roundIcon="@mipmap/ic_launcher_8" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon9" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_9" android:roundIcon="@mipmap/ic_launcher_9" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon10" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_10" android:roundIcon="@mipmap/ic_launcher_10" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon11" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_11" android:roundIcon="@mipmap/ic_launcher_11" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon12" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_12" android:roundIcon="@mipmap/ic_launcher_12" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon13" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_13" android:roundIcon="@mipmap/ic_launcher_13" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon14" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_14" android:roundIcon="@mipmap/ic_launcher_14" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon15" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_15" android:roundIcon="@mipmap/ic_launcher_15" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon16" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_16" android:roundIcon="@mipmap/ic_launcher_16" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon17" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_17" android:roundIcon="@mipmap/ic_launcher_17" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon18" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_18" android:roundIcon="@mipmap/ic_launcher_18" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".Icon19" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/ic_launcher_19" android:roundIcon="@mipmap/ic_launcher_19" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
         <service
             android:name=".PlaybackService"
             android:exported="true"

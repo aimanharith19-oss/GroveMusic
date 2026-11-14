@@ -34,6 +34,12 @@ class MainActivity : ComponentActivity() {
         window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId; preferredRefreshRate = best.refreshRate }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // switch the launcher icon to the current accent colour once the app is in the background
+        IconSwitcher.apply(this, Prefs(this).accent)
+    }
+
     override fun onResume() {
         super.onResume()
         useHighestRefreshRate()

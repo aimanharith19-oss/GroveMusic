@@ -105,6 +105,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val mixSalt = androidx.compose.runtime.mutableIntStateOf(prefs.mixSalt)
     /** start a radio from a song (seed first, then a related random mix) */
     var playRadio: ((List<Song>) -> Unit)? = null
+    var editTags: ((Long) -> Unit)? = null
     fun radio(seed: Song) { playRadio?.invoke(Radio.build(seed, songs.value)) }
     fun newMixes() { mixSalt.intValue++; prefs.mixSalt = mixSalt.intValue }
     val songs = mutableStateOf<List<Song>>(emptyList())

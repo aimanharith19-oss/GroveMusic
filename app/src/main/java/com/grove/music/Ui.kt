@@ -88,6 +88,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.media3.common.Player
 import androidx.media3.common.MediaItem
 import coil.compose.AsyncImage
+import coil.imageLoader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -159,6 +160,7 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
     data object Search : Screen
+    data class EditTags(val songId: Long) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
 
@@ -185,6 +187,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
 
     var addTarget by remember { mutableStateOf<List<Long>?>(null) }
     vm.playRadio = { list -> conn.playSongs(list, 0); stack = stack + Screen.Playing }
+    vm.editTags = { id -> forward = true; stack = stack + Screen.EditTags(id) }
     BackHandler(addTarget != null) { addTarget = null }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
         CompositionLocalProvider(LocalAddToPlaylist provides { addTarget = it }) {
@@ -211,6 +214,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
+                    is Screen.EditTags -> EditTagsScreen(s.songId, vm, accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
                 }
@@ -224,6 +228,129 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                 AddToPlaylistSheet(vm, addTarget ?: emptyList(), accent) { addTarget = null }
             }
         }
+        }
+    }
+}
+
+/** Edit a song's tags and cover — typed in, picked from the phone, or found online. Saved into the file itself. */
+@Composable
+fun EditTagsScreen(songId: Long, vm: MusicViewModel, accent: Color, close: () -> Unit) {
+    val ctx = LocalContext.current
+    val song = vm.song(songId.toString()) ?: run { LaunchedEffect(Unit) { close() }; return }
+    val scope = rememberCoroutineScope()
+    var t by remember(songId) { mutableStateOf(TagEditor.current(song)) }
+    var cover by remember(songId) { mutableStateOf<ByteArray?>(null) }
+    var coverPreview by remember(songId) { mutableStateOf<Any?>(song.artUri) }
+    var results by remember { mutableStateOf<List<OnlineMatch>?>(null) }
+    var busy by remember { mutableStateOf<String?>(null) }
+
+    fun toast(m: String) = android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_SHORT).show()
+    fun doSave() {
+        busy = "saving…"
+        scope.launch {
+            val r = TagEditor.write(ctx, song, t, cover)
+            busy = null
+            r.onSuccess {
+                ctx.imageLoader.memoryCache?.clear()
+                toast("saved"); vm.load(); close()
+            }.onFailure { e -> toast("couldn't save: ${e.message ?: e.javaClass.simpleName}") }
+        }
+    }
+    val writePerm = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        if (r.resultCode == android.app.Activity.RESULT_OK) doSave() else toast("permission needed to change the file")
+    }
+    fun save() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val pi = android.provider.MediaStore.createWriteRequest(ctx.contentResolver, listOf(song.uri))
+            writePerm.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+        } else doSave()
+    }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) { cover = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }; coverPreview = cover }
+    }
+    fun findOnline() {
+        busy = "searching online…"
+        scope.launch {
+            results = runCatching { TagEditor.search("${t.title} ${ArtistRepository.primary(t.artist)}".trim()) }.getOrDefault(emptyList())
+            busy = null
+            if (results.isNullOrEmpty()) toast("nothing found online")
+        }
+    }
+    fun apply(m: OnlineMatch) {
+        t = t.copy(title = m.tags.title, artist = m.tags.artist, album = m.tags.album, albumArtist = m.tags.albumArtist,
+            track = m.tags.track.ifBlank { t.track }, year = m.tags.year.ifBlank { t.year }, genre = m.tags.genre.ifBlank { t.genre })
+        results = null
+        m.coverUrl?.let { u ->
+            busy = "downloading picture…"
+            scope.launch { TagEditor.download(u)?.let { cover = it; coverPreview = it }; busy = null }
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        TintBackground(accent, 0.30f)
+        LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
+            item {
+                Text("EDIT SONG", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 14.dp))
+                Text("info", color = White, fontSize = 56.sp, fontWeight = FontWeight.Light)
+                Text(song.displayName, color = Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.padding(vertical = 14.dp), verticalAlignment = Alignment.Bottom) {
+                    Box(Modifier.size(140.dp).background(lerp(accent, Color.Black, 0.3f))) {
+                        AsyncImage(coverPreview, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    }
+                    Column(Modifier.padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("change picture", color = White, fontSize = 16.sp, modifier = Modifier.border(2.dp, White)
+                            .tilt { pickImage.launch("image/*") }.padding(horizontal = 14.dp, vertical = 7.dp))
+                        Text("find online", color = White, fontSize = 16.sp, modifier = Modifier.background(accent)
+                            .tilt { findOnline() }.padding(horizontal = 14.dp, vertical = 9.dp))
+                    }
+                }
+                busy?.let { Text(it, color = White, fontSize = 15.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+            }
+            results?.takeIf { it.isNotEmpty() }?.let { list ->
+                item { SectionLabel("tap the right match", accent) }
+                itemsIndexed(list) { _, m ->
+                    Row(Modifier.fillMaxWidth().tilt { apply(m) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(54.dp).background(lerp(accent, Color.Black, 0.3f))) {
+                            if (m.coverUrl != null) AsyncImage(m.coverUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                        }
+                        Column(Modifier.padding(start = 12.dp)) {
+                            Text(m.tags.title, color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOf(m.tags.artist, m.tags.album, m.tags.year).filter { it.isNotBlank() }.joinToString(" · "),
+                                color = Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                item { Text("cancel", color = accent, fontSize = 15.sp, modifier = Modifier.tilt { results = null }.padding(vertical = 10.dp)) }
+            }
+            item {
+                @Composable fun F(label: String, v: String, num: Boolean = false, set: (String) -> Unit) =
+                    OutlinedTextField(v, set, label = { Text(label) }, singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = if (num) androidx.compose.ui.text.input.KeyboardType.Number else androidx.compose.ui.text.input.KeyboardType.Text),
+                        shape = androidx.compose.ui.graphics.RectangleShape,
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = White, unfocusedBorderColor = White.copy(alpha = 0.45f),
+                            focusedLabelColor = White, unfocusedLabelColor = Dim, cursorColor = White,
+                            focusedTextColor = White, unfocusedTextColor = White),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                F("title", t.title) { t = t.copy(title = it) }
+                F("artist", t.artist) { t = t.copy(artist = it) }
+                F("album", t.album) { t = t.copy(album = it) }
+                F("album artist", t.albumArtist) { t = t.copy(albumArtist = it) }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) { F("track", t.track, true) { t = t.copy(track = it) } }
+                    Box(Modifier.weight(1f)) { F("year", t.year, true) { t = t.copy(year = it) } }
+                }
+                F("genre", t.genre) { t = t.copy(genre = it) }
+                Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("save", color = White, fontSize = 18.sp, modifier = Modifier.background(accent)
+                        .tilt { if (busy == null) save() }.padding(horizontal = 26.dp, vertical = 10.dp))
+                    Text("cancel", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White).tilt(close)
+                        .padding(horizontal = 22.dp, vertical = 8.dp))
+                }
+                Text("changes are written into the song file, so other apps see them too", color = Dim, fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 10.dp))
+            }
         }
     }
 }
@@ -334,6 +461,11 @@ fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onD
         val toConvert = remember(songs) { vm.needingFlac(songs.mapNotNull { vm.song(it.toString()) }) }
         val one = songs.singleOrNull()?.let { vm.song(it.toString()) }
         if (!naming && one != null) {
+            Row(Modifier.fillMaxWidth().tilt { onDone(); vm.editTags?.invoke(one.id) }.padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).border(2.dp, White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Edit, null, tint = White) }
+                Text("edit info & picture", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+            }
             Row(Modifier.fillMaxWidth().tilt {
                 vm.radio(one); onDone()
             }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
