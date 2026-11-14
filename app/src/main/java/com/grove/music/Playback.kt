@@ -23,6 +23,9 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.google.common.collect.ImmutableList
+import androidx.media3.session.CommandButton
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import androidx.media3.session.SessionToken
@@ -75,10 +78,11 @@ class PlaybackService : MediaLibraryService() {
                 all.filter { s -> ArtistRepository.split(s.artist).any { ArtistRepository.key(it) == k } }
                     .sortedWith(compareBy({ it.album.lowercase() }, { it.track }))
             }
-            parent.startsWith("pl:") -> PlaylistStore(this).get(parent.drop(3))?.ids?.let { ids ->
+            parent.startsWith("pl:") -> PlaylistStore.get(this).get(parent.drop(3))?.ids?.let { ids ->
                 val m = byId(); ids.mapNotNull { m[it.toString()] }
             } ?: emptyList()
             parent == "search" -> lastSearch
+            parent.startsWith("mix:") -> mixes().getOrNull(parent.drop(4).toIntOrNull() ?: -1)?.second ?: emptyList()
             else -> emptyList()
         }
     }
@@ -88,7 +92,9 @@ class PlaybackService : MediaLibraryService() {
             folder("playlists", "Playlists"), folder("albums", "Albums", grid = true),
             folder("artists", "Artists", grid = true), folder("songs", "Songs"),
         )
-        "playlists" -> PlaylistStore(this).lists.value.map { p ->
+        "playlists" -> mixes().mapIndexed { i, (name, l) ->
+            folder("mix:$i", name, sub = "${l.size} songs · radio mix", art = l.firstOrNull()?.let { ArtProvider.album(it.albumId) })
+        } + PlaylistStore.get(this).lists.value.map { p ->
             folder("pl:${p.id}", p.name, sub = "${p.ids.size} songs",
                 art = p.ids.firstNotNullOfOrNull { byId()[it.toString()] }?.let { ArtProvider.album(it.albumId) })
         }
@@ -157,6 +163,8 @@ class PlaybackService : MediaLibraryService() {
         player.replaceMediaItem(idx, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setArtist(text).build()).build())
     }
 
+    private fun mixes() = Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, Prefs(this).mixSalt)
+
     private var lastSearch: List<Song> = emptyList()
     private fun search(q: String): List<Song> {
         val t = q.trim().lowercase()
@@ -193,6 +201,7 @@ class PlaybackService : MediaLibraryService() {
         // remember the queue so Android can offer "resume" in the media controls later
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                session?.setCustomLayout(buttons(player))
                 val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
                 prefs.saveQueue(ids, player.currentMediaItemIndex, 0)
             }
@@ -212,7 +221,29 @@ class PlaybackService : MediaLibraryService() {
         session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
             override fun onConnect(s: MediaSession, c: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                 if (isCar(c)) { cars++; startCarLyrics(s.player) }
-                return super.onConnect(s, c)
+                val cmds = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                    .add(CMD_LIKE).add(CMD_RADIO).build()
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(s)
+                    .setAvailableSessionCommands(cmds).setCustomLayout(buttons(s.player)).build()
+            }
+
+            // like / radio buttons in the notification, lock screen and car
+            override fun onCustomCommand(s: MediaSession, c: MediaSession.ControllerInfo, cmd: SessionCommand, args: Bundle)
+                : ListenableFuture<SessionResult> {
+                val p = s.player
+                val song = p.currentMediaItem?.mediaId?.substringAfterLast("::")?.let { byId()[it] }
+                    ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+                when (cmd.customAction) {
+                    CMD_LIKE.customAction -> PlaylistStore.get(this@PlaybackService).toggleLike(song.id)
+                    CMD_RADIO.customAction -> {
+                        val list = Radio.build(song, songs())
+                        p.shuffleModeEnabled = false
+                        p.setMediaItems(list.map { it.toMediaItem() }, 0, p.currentPosition)
+                        p.prepare(); p.play()
+                    }
+                }
+                s.setCustomLayout(buttons(p))
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
 
             override fun onDisconnected(s: MediaSession, c: MediaSession.ControllerInfo) {
@@ -291,6 +322,11 @@ class PlaybackService : MediaLibraryService() {
                 return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, start, pos))
             }
         }).setSessionActivity(open).build()
+        // keep the notification heart in step when a song is liked inside the app
+        scope.launch {
+            androidx.compose.runtime.snapshotFlow { PlaylistStore.get(this@PlaybackService).liked.ids }
+                .collect { session?.let { s -> s.setCustomLayout(buttons(s.player)) } }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -307,7 +343,20 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
+    private fun buttons(p: Player): ImmutableList<CommandButton> {
+        val id = p.currentMediaItem?.mediaId?.substringAfterLast("::")?.toLongOrNull()
+        val liked = id != null && PlaylistStore.get(this).isLiked(id)
+        return ImmutableList.of(
+            CommandButton.Builder().setDisplayName(if (liked) "Unlike" else "Like")
+                .setIconResId(if (liked) R.drawable.ic_n_heart else R.drawable.ic_n_heart_off).setSessionCommand(CMD_LIKE).build(),
+            CommandButton.Builder().setDisplayName("Start radio")
+                .setIconResId(R.drawable.ic_n_radio).setSessionCommand(CMD_RADIO).build(),
+        )
+    }
+
     companion object {
+        val CMD_LIKE = SessionCommand("grove.LIKE", Bundle.EMPTY)
+        val CMD_RADIO = SessionCommand("grove.RADIO", Bundle.EMPTY)
         const val ROOT = "root"
         const val STYLE_BROWSABLE = "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"
         const val STYLE_PLAYABLE = "android.media.browse.CONTENT_STYLE_PLAYABLE_HINT"

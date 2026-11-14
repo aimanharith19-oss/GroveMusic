@@ -53,7 +53,12 @@ class PlaylistStore(ctx: Context) {
         return if (l.any { it.id == LIKED }) l else listOf(Playlist(LIKED, "liked songs", emptyList())) + l
     }
 
-    companion object { const val LIKED = "liked" }
+    companion object {
+        const val LIKED = "liked"
+        @Volatile private var inst: PlaylistStore? = null
+        /** one shared store for the app and the playback service, so likes stay in sync */
+        fun get(ctx: Context): PlaylistStore = inst ?: synchronized(this) { inst ?: PlaylistStore(ctx.applicationContext).also { inst = it } }
+    }
 }
 
 /** Opens the "add to playlist" sheet from anywhere in the UI. */

@@ -184,6 +184,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
 
     var addTarget by remember { mutableStateOf<List<Long>?>(null) }
+    vm.playRadio = { list -> conn.playSongs(list, 0); stack = stack + Screen.Playing }
     BackHandler(addTarget != null) { addTarget = null }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
         CompositionLocalProvider(LocalAddToPlaylist provides { addTarget = it }) {
@@ -331,6 +332,15 @@ fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onD
         Text(if (songs.size == 1) "1 song" else "${songs.size} songs", color = White.copy(alpha = 0.7f), fontSize = 13.sp,
             modifier = Modifier.padding(bottom = 8.dp))
         val toConvert = remember(songs) { vm.needingFlac(songs.mapNotNull { vm.song(it.toString()) }) }
+        val one = songs.singleOrNull()?.let { vm.song(it.toString()) }
+        if (!naming && one != null) {
+            Row(Modifier.fillMaxWidth().tilt {
+                vm.radio(one); onDone()
+            }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).background(accent), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = White) }
+                Text("start radio", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+            }
+        }
         if (!naming && toConvert.isNotEmpty() && vm.flacJob.value == null) {
             Row(Modifier.fillMaxWidth().tilt {
                 vm.convertToFlac(toConvert)
@@ -413,7 +423,7 @@ fun HomeScreen(
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
-                "playlists" -> PlaylistsPage(vm, accent) { open(Screen.PlaylistView(it)) }
+                "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
                 }
@@ -595,7 +605,7 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
 }
 
 @Composable
-fun PlaylistsPage(vm: MusicViewModel, accent: Color, onOpen: (String) -> Unit) {
+fun PlaylistsPage(vm: MusicViewModel, accent: Color, onMix: (String, List<Song>) -> Unit, onOpen: (String) -> Unit) {
     val store = vm.playlists
     val intro = rememberIntro()
     var naming by remember { mutableStateOf(false) }
@@ -614,6 +624,37 @@ fun PlaylistsPage(vm: MusicViewModel, accent: Color, onOpen: (String) -> Unit) {
                 }
             } else Text("+ new playlist", color = accent, fontSize = 20.sp,
                 modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { naming = true }.padding(vertical = 8.dp))
+        }
+        val mixes = Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue)
+        if (mixes.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SectionLabel("radio mixes · new every day", accent, Modifier.weight(1f))
+                    Text("shuffle", color = White.copy(alpha = 0.8f), fontSize = 14.sp, modifier = Modifier.tilt { vm.newMixes() }.padding(8.dp))
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 14.dp)) {
+                    itemsIndexed(mixes) { _, (name, list) ->
+                        Column(Modifier.width(150.dp).tilt { onMix(name, list) }) {
+                            Box(Modifier.size(150.dp)) {
+                                // 2x2 cover mosaic
+                                val covers = list.distinctBy { it.albumId }.take(4)
+                                Column {
+                                    for (r in 0..1) Row { for (c in 0..1) {
+                                        val s = covers.getOrNull(r * 2 + c) ?: covers.firstOrNull()
+                                        Art(s?.artUri, accent, Modifier.size(75.dp))
+                                    } }
+                                }
+                                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.85f)))))
+                                Icon(Icons.Rounded.Radio, null, tint = White, modifier = Modifier.align(Alignment.BottomStart).padding(8.dp).size(26.dp))
+                            }
+                            Text(name, color = White, fontSize = 17.sp, fontWeight = FontWeight.Light, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                            Text("${list.size} songs", color = Dim, fontSize = 12.sp)
+                        }
+                    }
+                }
+                SectionLabel("your playlists", accent)
+            }
         }
         itemsIndexed(store.lists.value, key = { _, p -> p.id }) { i, p ->
             val first = p.ids.firstNotNullOfOrNull { vm.song(it.toString()) }
@@ -1030,6 +1071,12 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 if (song != null) Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, "add to playlist", tint = White,
                     modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.25f)).tilt { addTo(listOf(song.id)) }.padding(9.dp))
+                if (song != null) Icon(Icons.Rounded.Radio, "start radio", tint = White,
+                    modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.25f)).tilt {
+                            conn.playSongs(Radio.build(song, vm.songs.value), 0)
+                            android.widget.Toast.makeText(ctx, "radio from ${song.title}", android.widget.Toast.LENGTH_SHORT).show()
+                        }.padding(9.dp))
                 Icon(Icons.AutoMirrored.Rounded.QueueMusic, "up next", tint = White,
                     modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.25f)).tilt { showQueue = true }.padding(9.dp))

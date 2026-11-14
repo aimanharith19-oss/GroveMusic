@@ -101,7 +101,12 @@ object MusicRepository {
 
 class MusicViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
-    val playlists = PlaylistStore(app)
+    val playlists = PlaylistStore.get(app)
+    val mixSalt = androidx.compose.runtime.mutableIntStateOf(prefs.mixSalt)
+    /** start a radio from a song (seed first, then a related random mix) */
+    var playRadio: ((List<Song>) -> Unit)? = null
+    fun radio(seed: Song) { playRadio?.invoke(Radio.build(seed, songs.value)) }
+    fun newMixes() { mixSalt.intValue++; prefs.mixSalt = mixSalt.intValue }
     val songs = mutableStateOf<List<Song>>(emptyList())
     /** every folder that contains music, with its song count (hidden ones included) */
     val folders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
@@ -204,6 +209,9 @@ class Prefs(ctx: Context) {
     fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
     fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
         sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
+    var mixSalt: Int
+        get() = sp.getInt("mix_salt", 0)
+        set(v) = sp.edit().putInt("mix_salt", v).apply()
     var carLyrics: Boolean
         get() = sp.getBoolean("car_lyrics", true)
         set(v) = sp.edit().putBoolean("car_lyrics", v).apply()
