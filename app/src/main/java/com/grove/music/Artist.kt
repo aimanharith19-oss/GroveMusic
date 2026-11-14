@@ -33,10 +33,26 @@ object ArtistRepository {
     private val mem = HashMap<String, ArtistInfo?>()
     private val musicWords = listOf("singer", "musician", "band", "rapper", "group", "songwriter", "duo", "dj",
         "composer", "vocalist", "artist", "penyanyi", "kumpulan", "muzik", "pemuzik", "idol")
-    private val splitter = Regex("""\s*(,|;|/|&|\+| x | feat\.?| ft\.?| featuring | with )\s*""", RegexOption.IGNORE_CASE)
+    // always a collaboration: "A feat. B", "A ft B", "A featuring B", "A; B"
+    private val hard = Regex("""\s*(;|\s\(?feat\.?\s|\s\(?ft\.?\s|\sfeaturing\s)\s*""", RegexOption.IGNORE_CASE)
+    // only a collaboration when the parts are singers you already have on their own:
+    // keeps "AC/DC", "Simon & Garfunkel", "Earth, Wind & Fire" whole
+    private val soft = Regex("""\s*(,|/|&|\+|\sx\s|\swith\s|\sand\s)\s*""", RegexOption.IGNORE_CASE)
 
-    /** "A feat. B", "A, B", "A & B" -> ["A", "B"] */
-    fun split(n: String): List<String> = n.split(splitter).map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf(n.trim()) }
+    /** keys of every full artist credit in the library (set after each scan) */
+    @Volatile var known: Set<String> = emptySet()
+    fun learn(songs: List<Song>) { known = songs.map { key(it.artist) }.toHashSet() }
+
+    /** "A feat. B" -> ["A", "B"]; "AC/DC" stays "AC/DC" */
+    fun split(n: String): List<String> {
+        val out = ArrayList<String>()
+        for (part in n.split(hard).map { it.trim().trimEnd(')').trim() }.filter { it.isNotEmpty() }) {
+            if (key(part) in known && part != n.trim()) { out += part; continue }
+            val pieces = part.split(soft).map { it.trim() }.filter { it.isNotEmpty() }
+            if (pieces.size > 1 && pieces.any { key(it) in known }) out += pieces else out += part
+        }
+        return out.ifEmpty { listOf(n.trim()) }
+    }
     fun primary(n: String): String = split(n).first()
     fun key(n: String) = n.trim().lowercase()
 

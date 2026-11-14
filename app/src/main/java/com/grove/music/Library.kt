@@ -124,6 +124,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         loading.value = true
         all = withContext(Dispatchers.IO) { runCatching { MusicRepository.query(getApplication()) }.getOrDefault(emptyList()) }
         byId = all.associateBy { it.id.toString() }
+        ArtistRepository.learn(all)
         folders.value = all.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
         apply()
         loading.value = false

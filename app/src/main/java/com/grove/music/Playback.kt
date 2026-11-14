@@ -43,6 +43,7 @@ class PlaybackService : MediaLibraryService() {
     private var library: List<Song>? = null
 
     private fun songs(): List<Song> = library ?: runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
+        .also { ArtistRepository.learn(it) }
         .let { val p = Prefs(this); visibleSongs(it, p.hiddenFolders, p.preferFlac) }.also { library = it }
 
     private fun byId() = songs().associateBy { it.id.toString() }
