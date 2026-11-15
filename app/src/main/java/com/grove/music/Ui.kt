@@ -1299,6 +1299,17 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                     if (song != null) LikeButton(vm.playlists, song.id, accent)
                 }
             }
+            // singer(s) under the title — tap one to open their artist page
+            val credited = remember(artistName) { ArtistRepository.split(artistName) }
+            Row(Modifier.padding(top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Person, null, tint = accent, modifier = Modifier.size(18.dp))
+                credited.forEachIndexed { i, a ->
+                    if (i > 0) Text(" · ", color = White.copy(alpha = 0.5f), fontSize = 17.sp)
+                    Text(a, color = White.copy(alpha = 0.9f), fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        modifier = Modifier.padding(start = if (i == 0) 6.dp else 0.dp).tilt { open(Screen.Artist(a)) }.padding(vertical = 4.dp))
+                }
+            }
             Spacer(Modifier.height(4.dp))
             SeekBar(posS, durS, accent, conn::seekTo)
             TimeRow(posS, durS)
