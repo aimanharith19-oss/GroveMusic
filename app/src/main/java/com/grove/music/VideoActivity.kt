@@ -50,7 +50,66 @@ class VideoActivity : ComponentActivity() {
     private var vw = 16; private var vh = 9
     private val inPip = mutableStateOf(false)
 
+    // ── shared with the notification service ──
+    private var session: android.media.session.MediaSession? = null
+    var thumb: android.graphics.Bitmap? = null
+    fun titleText() = title.value
+    fun isPlaying() = ::player.isInitialized && player.isPlaying
+    fun sessionToken() = session?.sessionToken
+    fun toggle() { if (player.isPlaying) player.pause() else player.play(); refresh() }
+    fun skip(ms: Long) { player.time = (player.time + ms).coerceAtLeast(0); refresh() }
+
+    /** audio only: keep the sound going in the background with no picture */
+    private val audioOnly = mutableStateOf(false)
+
+    private fun refresh() {
+        val st = android.media.session.PlaybackState.Builder()
+            .setActions(android.media.session.PlaybackState.ACTION_PLAY or android.media.session.PlaybackState.ACTION_PAUSE or
+                android.media.session.PlaybackState.ACTION_PLAY_PAUSE or android.media.session.PlaybackState.ACTION_SEEK_TO or
+                android.media.session.PlaybackState.ACTION_FAST_FORWARD or android.media.session.PlaybackState.ACTION_REWIND or
+                android.media.session.PlaybackState.ACTION_STOP)
+            .setState(if (player.isPlaying) android.media.session.PlaybackState.STATE_PLAYING else android.media.session.PlaybackState.STATE_PAUSED,
+                player.time, if (player.isPlaying) 1f else 0f).build()
+        session?.setPlaybackState(st)
+        session?.setMetadata(android.media.MediaMetadata.Builder()
+            .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, title.value)
+            .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, "Grove Media")
+            .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, player.length)
+            .putBitmap(android.media.MediaMetadata.METADATA_KEY_ART, thumb).build())
+        VideoService.update(this)
+        pipActions()
+    }
+
+    // picture-in-picture buttons: play/pause and "audio only"
+    private val pipReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context, i: Intent) {
+            when (i.action) {
+                VideoService.ACT_TOGGLE -> toggle()
+                ACT_AUDIO -> goAudioOnly()
+            }
+        }
+    }
+
+    private fun pipActions() {
+        if (Build.VERSION.SDK_INT < 26) return
+        fun ra(icon: Int, t: String, action: String) = android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this, icon), t, t,
+            android.app.PendingIntent.getBroadcast(this, action.hashCode(), Intent(action).setPackage(packageName), android.app.PendingIntent.FLAG_IMMUTABLE))
+        val b = PictureInPictureParams.Builder().setActions(listOf(
+            ra(if (player.isPlaying) R.drawable.ic_n_pause else R.drawable.ic_n_play, "Play/pause", VideoService.ACT_TOGGLE),
+            ra(R.drawable.ic_n_headphones, "Audio only", ACT_AUDIO)))
+        runCatching { setPictureInPictureParams(b.build()) }
+    }
+
+    /** close the picture, keep listening (controls stay in the notification) */
+    private fun goAudioOnly() {
+        audioOnly.value = true
+        refresh()
+        moveTaskToBack(true)
+    }
+
     companion object {
+        const val ACT_AUDIO = "grove.video.AUDIO"
+        var current: VideoActivity? = null
         fun open(ctx: Context, v: Video, title: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
             .putExtra("id", v.id).putExtra("title", title).putExtra("w", v.w).putExtra("h", v.h)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -59,8 +118,26 @@ class VideoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        current = this
         lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--no-drop-late-frames", "--no-skip-frames"))
         player = MediaPlayer(lib)
+        session = android.media.session.MediaSession(this, "GroveVideo").apply {
+            setCallback(object : android.media.session.MediaSession.Callback() {
+                override fun onPlay() { player.play(); refresh() }
+                override fun onPause() { player.pause(); refresh() }
+                override fun onSeekTo(pos: Long) { player.time = pos; refresh() }
+                override fun onFastForward() = skip(10_000)
+                override fun onRewind() = skip(-10_000)
+                override fun onStop() { finish() }
+            })
+            isActive = true
+        }
+        player.setEventListener { e ->
+            if (e.type == MediaPlayer.Event.Playing || e.type == MediaPlayer.Event.Paused) refresh()
+            if (e.type == MediaPlayer.Event.EndReached) refresh()
+        }
+        val f = android.content.IntentFilter().apply { addAction(VideoService.ACT_TOGGLE); addAction(ACT_AUDIO) }
+        registerReceiver(pipReceiver, f, RECEIVER_NOT_EXPORTED)
         load(intent)
         setContent { Screen() }
         pipParams(true)
@@ -82,6 +159,7 @@ class VideoActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         player.play()
+        thumb = runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull()
         val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
         if (resume > 5000) player.time = resume
     }
@@ -105,7 +183,7 @@ class VideoActivity : ComponentActivity() {
         val r = (vw.toFloat() / vh).coerceIn(0.42f, 2.38f)
         val b = PictureInPictureParams.Builder().setAspectRatio(Rational((r * 1000).toInt(), 1000))
         // swiping home with the gesture bar drops the video into picture-in-picture
-        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(auto).setSeamlessResizeEnabled(true)
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(auto && !audioOnly.value).setSeamlessResizeEnabled(true)
         return b.build().also { setPictureInPictureParams(it) }
     }
 
@@ -118,22 +196,30 @@ class VideoActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (audioOnly.value) return
         if (Build.VERSION.SDK_INT in 26..30 && player.isPlaying) pipParams(true)?.let { enterPictureInPictureMode(it) }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPip.value = isInPictureInPictureMode
+        // the PiP window was closed with its ✕ → stop the video (unless it switched to audio only)
+        if (!isInPictureInPictureMode && !audioOnly.value &&
+            lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) { player.stop(); finish() }
     }
+
+    override fun onResume() { super.onResume(); if (audioOnly.value) { audioOnly.value = false; pipParams(true) } }
 
     override fun onStop() {
         super.onStop()
         savePos()
-        if (!inPip.value) player.pause()
+        if (!inPip.value && !audioOnly.value && !isFinishing) player.pause()
     }
 
     override fun onDestroy() {
         savePos()
+        runCatching { unregisterReceiver(pipReceiver) }
+        VideoService.stop(this); session?.release(); if (current === this) current = null
         player.stop(); player.detachViews(); player.release(); lib.release(); pfd?.close()
         super.onDestroy()
     }
@@ -164,6 +250,7 @@ class VideoActivity : ComponentActivity() {
                         Text(title.value, color = Color.White, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
                         Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen) { fill = !fill }
+                        Btn(Icons.Rounded.Headphones) { goAudioOnly() }
                         if (Build.VERSION.SDK_INT >= 26) Btn(Icons.Rounded.PictureInPictureAlt) { enterPip() }
                     }
                     Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {

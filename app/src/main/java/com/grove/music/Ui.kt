@@ -1626,6 +1626,22 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             }
         }
         if (vm.folders.value.isEmpty()) Text("no music folders found", color = Dim, fontSize = 15.sp)
+        Text("video folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 14.dp))
+        Text("tick the folders the videos tab should show", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
+        LaunchedEffect(Unit) { if (vm.videoFolders.value.isEmpty()) vm.loadVideos() }
+        val hv = vm.hiddenVideo.value
+        vm.videoFolders.value.forEach { (f, n) ->
+            val shown = f !in hv
+            Row(Modifier.fillMaxWidth().tilt { vm.setVideoFolder(f, !shown) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(26.dp).border(2.dp, White).background(if (shown) accent else Color.Transparent), contentAlignment = Alignment.Center) {
+                    if (shown) Icon(Icons.Rounded.Check, null, tint = White, modifier = Modifier.size(20.dp))
+                }
+                Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                    Text(f.substringAfterLast('/').ifEmpty { f }, color = if (shown) White else Dim, fontSize = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("$n videos · ${f.removePrefix("/storage/emulated/0")}", color = Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
         SettingItem("about", "Grove Music 1.0 · plays MP3, FLAC (incl. 24-bit), OGG, OPUS, M4A, WAV") {}
         Spacer(Modifier.height(24.dp))
     }

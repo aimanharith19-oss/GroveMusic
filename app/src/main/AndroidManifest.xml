@@ -40,6 +40,7 @@
             </intent-filter>
         </activity>
         <!-- one launcher entry per accent colour; only the one matching the app theme is enabled -->
+        <service android:name=".VideoService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <!-- video player: its own task so picture-in-picture can float over Grove's home -->
         <activity android:name=".VideoActivity" android:exported="false"
             android:taskAffinity="com.grove.music.video" android:launchMode="singleTask"

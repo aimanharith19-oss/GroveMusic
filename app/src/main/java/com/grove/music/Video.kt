@@ -11,6 +11,7 @@ data class Video(
 ) {
     val uri: Uri get() = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
     val ext: String get() = name.substringAfterLast('.', "mp4")
+    val folder: String get() = path?.substringBeforeLast('/', "")?.ifEmpty { null } ?: "unknown folder"
     val parsed: ParsedName by lazy { ParsedName.of(name) }
 }
 

@@ -110,7 +110,17 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val videos = vm.videos.value
     LaunchedEffect(Unit) { if (videos.isEmpty()) vm.loadVideos() }
     val shows = remember(videos) { videos.filter { it.parsed.isEpisode }.groupBy { it.parsed.title.lowercase() }.values.sortedBy { it[0].parsed.title.lowercase() } }
-    val movies = remember(videos) { videos.filter { !it.parsed.isEpisode } }
+    val all = remember(videos) { videos.filter { !it.parsed.isEpisode } }
+    // look every video up once (cached), then split into movies found online vs. everything else
+    var found by remember { mutableStateOf<Map<Long, Title>>(emptyMap()) }
+    var checked by remember { mutableStateOf(false) }
+    LaunchedEffect(all) {
+        val m = HashMap<Long, Title>()
+        all.forEach { v -> VideoMeta.movie(ctx, v.parsed)?.let { m[v.id] = it } ; if (m.size % 6 == 0) found = m.toMap() }
+        found = m.toMap(); checked = true
+    }
+    val movies = all.filter { it.id in found }
+    val others = all.filter { it.id !in found }
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         if (videos.isEmpty()) item { Text("no videos found on your phone", color = D, fontSize = 16.sp) }
@@ -135,11 +145,11 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
                 }
             }
         }
-        if (movies.isNotEmpty()) item { SectionLabel("movies & videos", accent, Modifier.padding(top = 14.dp)) }
+        if (movies.isNotEmpty()) item { SectionLabel("movies", accent, Modifier.padding(top = 14.dp)) }
         items(movies.chunked(3).size) { r ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 movies.chunked(3)[r].forEach { v ->
-                    val t by produceState<Title?>(null, v.id) { value = VideoMeta.movie(ctx, v.parsed) }
+                    val t = found[v.id]
                     Column(Modifier.weight(1f).tilt { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
                             if (t?.poster != null) AsyncImage(t!!.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
@@ -150,6 +160,24 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
                     }
                 }
                 repeat(3 - movies.chunked(3)[r].size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        if (others.isNotEmpty()) item {
+            SectionLabel(if (checked) "other videos · no info found" else "other videos · checking…", accent, Modifier.padding(top = 14.dp))
+        }
+        items(others.chunked(2).size) { r ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                others.chunked(2)[r].forEach { v ->
+                    Column(Modifier.weight(1f).tilt { VideoActivity.open(ctx, v, v.parsed.title) }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                            VideoThumb(v, Modifier.matchParentSize())
+                            Text(fmtDur(v.duration), color = W, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
+                                .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 1.dp))
+                        }
+                        Text(v.name.substringBeforeLast('.'), color = W, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    }
+                }
+                repeat(2 - others.chunked(2)[r].size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -259,21 +287,28 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
                 }.padding(vertical = 6.dp))
             }
         }
-        var lastSeason = -1
-        list.forEach { (e, v) ->
-            if (e.season != lastSeason) { lastSeason = e.season; val sn = e.season
-                item(key = "s$sn") { Text("season $sn", color = W, fontSize = 26.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)) } }
-            item(key = "e${e.season}_${e.number}") {
-                Row(Modifier.fillMaxWidth().graphicsLayer { alpha = if (v != null) 1f else 0.45f }
-                    .tilt { if (v != null) VideoActivity.open(ctx, v, "${t?.name ?: name} · S${e.season}E${e.number}${if (e.name.isNotBlank()) " · ${e.name}" else ""}") }
-                    .padding(horizontal = 20.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.width(128.dp).height(72.dp)) {
-                        if (e.still != null) AsyncImage(e.still, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                        else if (v != null) VideoThumb(v, Modifier.matchParentSize()) else Box(Modifier.matchParentSize().background(Color(0xFF1A1A1A)))
-                    }
-                    Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                        Text("${e.number}. ${e.name.ifBlank { "episode ${e.number}" }}", color = W, fontSize = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(if (v == null) "not on your phone" else listOf(e.air, fmtDur(v.duration)).filter { it.isNotBlank() }.joinToString(" · "), color = D, fontSize = 12.sp)
+        // each season is a row you swipe left/right through
+        list.groupBy { it.first.season }.toSortedMap().forEach { (sn, row) ->
+            item(key = "s$sn") {
+                Column {
+                    Text("season $sn · ${row.count { it.second != null }}/${row.size}", color = W, fontSize = 24.sp, fontWeight = FontWeight.Light,
+                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp))
+                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        itemsIndexed(row) { _, (e, v) ->
+                            Column(Modifier.width(220.dp).graphicsLayer { alpha = if (v != null) 1f else 0.45f }.tilt {
+                                if (v != null) VideoActivity.open(ctx, v, "${t?.name ?: name} · S${e.season}E${e.number}${if (e.name.isNotBlank()) " · ${e.name}" else ""}")
+                            }) {
+                                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                                    if (e.still != null) AsyncImage(e.still, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                    else if (v != null) VideoThumb(v, Modifier.matchParentSize()) else Box(Modifier.matchParentSize().background(Color(0xFF1A1A1A)))
+                                    Text("E${e.number}", color = W, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
+                                        .background(if (v != null) accent else Color.Black.copy(alpha = 0.6f)).padding(horizontal = 5.dp, vertical = 1.dp))
+                                }
+                                Text(e.name.ifBlank { "episode ${e.number}" }, color = W, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                                Text(if (v == null) "not on your phone" else listOf(e.air, fmtDur(v.duration)).filter { it.isNotBlank() }.joinToString(" · "), color = D, fontSize = 11.sp)
+                                if (e.overview.isNotBlank()) Text(e.overview, color = D, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                     }
                 }
             }

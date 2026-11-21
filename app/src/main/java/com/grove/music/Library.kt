@@ -214,8 +214,19 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val preferFlac = mutableStateOf(prefs.preferFlac)
 
     val videos = mutableStateOf<List<Video>>(emptyList())
+    /** every folder with videos (count), hidden ones included */
+    val videoFolders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
+    val hiddenVideo = mutableStateOf(prefs.hiddenVideoFolders)
+    private var allVideos: List<Video> = emptyList()
     fun loadVideos() = viewModelScope.launch {
-        videos.value = withContext(Dispatchers.IO) { runCatching { VideoRepository.query(getApplication()) }.getOrDefault(emptyList()) }
+        allVideos = withContext(Dispatchers.IO) { runCatching { VideoRepository.query(getApplication()) }.getOrDefault(emptyList()) }
+        videoFolders.value = allVideos.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
+        applyVideos()
+    }
+    private fun applyVideos() { val h = hiddenVideo.value; videos.value = allVideos.filter { it.folder !in h } }
+    fun setVideoFolder(folder: String, show: Boolean) {
+        val h = if (show) hiddenVideo.value - folder else hiddenVideo.value + folder
+        hiddenVideo.value = h; prefs.hiddenVideoFolders = h; applyVideos()
     }
 
     // ── speed dial pins: "song:<id>", "album:<albumId>", "artist:<name>", "playlist:<id>" ──
@@ -293,6 +304,9 @@ class Prefs(ctx: Context) {
     var liveTiles: Boolean
         get() = sp.getBoolean("live_tiles", false)
         set(v) = sp.edit().putBoolean("live_tiles", v).apply()
+    var hiddenVideoFolders: Set<String>
+        get() = sp.getStringSet("hidden_video_folders", emptySet())!!.toSet()
+        set(v) = sp.edit().putStringSet("hidden_video_folders", v).apply()
     var hiddenFolders: Set<String>
         get() = sp.getStringSet("hidden_folders", emptySet())!!.toSet()
         set(v) = sp.edit().putStringSet("hidden_folders", v).apply()
