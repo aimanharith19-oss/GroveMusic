@@ -152,6 +152,41 @@ object LrcLib {
     } catch (e: Exception) { null }
 }
 
+private fun httpGet(url: String, referer: String? = null): String? = try {
+    (java.net.URL(url).openConnection() as java.net.HttpURLConnection).run {
+        connectTimeout = 8000; readTimeout = 8000
+        setRequestProperty("User-Agent", "GroveMusic/1.0 (Android)")
+        referer?.let { setRequestProperty("Referer", it) }
+        try { if (responseCode == 200) inputStream.bufferedReader().readText() else null } finally { disconnect() }
+    }
+} catch (e: Exception) { null }
+
+/** NetEase Cloud Music — large catalogue of synced lyrics, strong for Asian music. */
+object NetEase {
+    fun fetch(k: TrackKey): String? {
+        val q = URLEncoder.encode("${k.title} ${k.artist}", "UTF-8")
+        val res = JSONObject(httpGet("https://music.163.com/api/search/get?s=$q&type=1&limit=8", "https://music.163.com") ?: return null)
+            .optJSONObject("result")?.optJSONArray("songs") ?: return null
+        val t = k.title.lowercase().filter { it.isLetterOrDigit() }
+        val songs = (0 until res.length()).map { res.getJSONObject(it) }
+        val hit = songs.firstOrNull { o ->
+            o.optString("name").lowercase().filter { it.isLetterOrDigit() }.let { it == t || it.startsWith(t) || t.startsWith(it) } &&
+                (k.durationMs <= 0 || kotlin.math.abs(o.optLong("duration") - k.durationMs) < 8000)
+        } ?: return null
+        return JSONObject(httpGet("https://music.163.com/api/song/lyric?id=${hit.optLong("id")}&lv=1&kv=1&tv=-1", "https://music.163.com") ?: return null)
+            .optJSONObject("lrc")?.optString("lyric")?.takeIf { it.isNotBlank() }
+    }
+}
+
+/** lyrics.ovh — plain (unsynced) lyrics as a last resort. */
+object LyricsOvh {
+    fun fetch(k: TrackKey): String? {
+        fun e(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+        return JSONObject(httpGet("https://api.lyrics.ovh/v1/${e(k.artist)}/${e(k.title)}") ?: return null)
+            .optString("lyrics").takeIf { it.isNotBlank() }
+    }
+}
+
 object LyricsRepository {
     private var indexFor: String? = null
     private var index: Map<String, Uri> = emptyMap()
@@ -189,9 +224,18 @@ object LyricsRepository {
         val cache = File(ctx.filesDir, "lyrics/" + "${k.artist} - ${k.title}".replace(Regex("""[^\w\- ]"""), "_").take(120) + ".lrc")
         if (cache.exists()) return LrcParser.parse(cache.readText(), "lrclib.net (saved)")
         if (!prefs.onlineLyrics) return null
-        val text = LrcLib.fetch(k) ?: return null
+        // online sources, best first: synced lyrics from LRCLIB or NetEase, then plain text from lyrics.ovh
+        var best: Pair<String, String>? = null
+        for ((name, src) in listOf<Pair<String, (TrackKey) -> String?>>(
+            "lrclib.net" to LrcLib::fetch, "NetEase" to NetEase::fetch, "lyrics.ovh" to LyricsOvh::fetch)) {
+            val t = runCatching { src(k) }.getOrNull()?.takeIf { it.isNotBlank() } ?: continue
+            val parsed = LrcParser.parse(t, name) ?: continue
+            if (best == null) best = t to name
+            if (parsed.synced) { best = t to name; break }
+        }
+        val (text, name) = best ?: return null
         runCatching { cache.parentFile?.mkdirs(); cache.writeText(text) }
-        return LrcParser.parse(text, "lrclib.net")
+        return LrcParser.parse(text, name)
     }
 
     @Synchronized private fun folderIndex(ctx: Context, tree: String): Map<String, Uri> {

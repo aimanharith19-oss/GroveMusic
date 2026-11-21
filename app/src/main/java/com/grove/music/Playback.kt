@@ -298,10 +298,13 @@ class PlaybackService : MediaLibraryService() {
                 when (cmd.customAction) {
                     CMD_LIKE.customAction -> PlaylistStore.get(this@PlaybackService).toggleLike(song.id)
                     CMD_RADIO.customAction -> {
-                        val list = Radio.build(song, songs())
+                        // keep the current song playing; the radio follows it
+                        val rest = Radio.build(song, songs()).drop(1).map { it.toMediaItem() }
                         p.shuffleModeEnabled = false
-                        p.setMediaItems(list.map { it.toMediaItem() }, 0, p.currentPosition)
-                        p.prepare(); p.play()
+                        val idx = p.currentMediaItemIndex
+                        if (idx + 1 < p.mediaItemCount) p.removeMediaItems(idx + 1, p.mediaItemCount)
+                        if (idx > 0) p.removeMediaItems(0, idx)
+                        p.addMediaItems(rest)
                     }
                 }
                 s.setCustomLayout(buttons(p))
@@ -487,6 +490,19 @@ class PlayerConnection(private val ctx: Context) {
         it.shuffleModeEnabled = shuffled
         it.setMediaItems(songs.map { s -> s.toMediaItem() }, if (shuffled) songs.indices.random() else start, 0)
         it.prepare(); it.play()
+    }
+
+    /** Radio without interrupting: keep the current song playing, replace everything after it with the radio list. */
+    fun startRadio(list: List<Song>) = run { p ->
+        val cur = p.currentMediaItem
+        if (cur == null || p.mediaItemCount == 0) { playSongs(list, 0); return@run }
+        val rest = list.filter { it.id.toString() != cur.mediaId }.map { it.toMediaItem() }
+        p.shuffleModeEnabled = false
+        val idx = p.currentMediaItemIndex
+        if (idx + 1 < p.mediaItemCount) p.removeMediaItems(idx + 1, p.mediaItemCount)
+        if (idx > 0) p.removeMediaItems(0, idx)
+        p.addMediaItems(rest)
+        if (!p.isPlaying) p.play()
     }
 
     fun playUri(uri: Uri) {

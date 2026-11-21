@@ -225,6 +225,10 @@ class Prefs(ctx: Context) {
     var pauseOnMute: Boolean
         get() = sp.getBoolean("pause_on_mute", true)
         set(v) = sp.edit().putBoolean("pause_on_mute", v).apply()
+    /** YouTube Music web cache limit in GB */
+    var ytCacheGb: Int
+        get() = sp.getInt("yt_cache_gb", 2)
+        set(v) = sp.edit().putInt("yt_cache_gb", v).apply()
     var ytTab: Boolean
         get() = sp.getBoolean("yt_tab", true)
         set(v) = sp.edit().putBoolean("yt_tab", v).apply()

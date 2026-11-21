@@ -90,6 +90,32 @@ object YtWeb {
     }
 
     fun restyle() { view?.let { inject(it) } }
+
+    fun go(path: String) { view?.loadUrl("https://music.youtube.com$path") }
+
+    /** go home and scroll to a shelf by its title (e.g. "Speed dial", "Forgotten favorites") */
+    fun shelf(vararg titles: String) {
+        val v = view ?: return
+        val js = """(function(t){var tries=0;function f(){var hs=document.querySelectorAll('ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer, ytmusic-grid-renderer');
+          for(var i=0;i<hs.length;i++){var x=(hs[i].innerText||'').toLowerCase().slice(0,80);for(var j=0;j<t.length;j++){if(x.indexOf(t[j])>=0){hs[i].scrollIntoView({behavior:'smooth'});return;}}}
+          if(tries++<40)setTimeout(f,300);}f();})(${org.json.JSONArray(titles.map { it.lowercase() })});"""
+        if (v.url?.trimEnd('/')?.endsWith("music.youtube.com") != true) {
+            v.loadUrl("https://music.youtube.com/"); v.postDelayed({ v.evaluateJavascript(js, null) }, 1500)
+        } else v.evaluateJavascript(js, null)
+    }
+
+    /** keep the web view's cache under the limit the user set (in GB) */
+    fun trim(ctx: Context, limitGb: Int) {
+        fun size(f: java.io.File): Long = if (f.isFile) f.length() else f.listFiles()?.sumOf { size(it) } ?: 0L
+        val dirs = listOf(java.io.File(ctx.cacheDir, "WebView"), java.io.File(ctx.dataDir, "app_webview"))
+        val used = dirs.sumOf { size(it) }
+        if (used > limitGb * 1024L * 1024 * 1024) view?.clearCache(true)
+    }
+
+    fun cacheSize(ctx: Context): Long {
+        fun size(f: java.io.File): Long = if (f.isFile) f.length() else f.listFiles()?.sumOf { size(it) } ?: 0L
+        return listOf(java.io.File(ctx.cacheDir, "WebView"), java.io.File(ctx.dataDir, "app_webview")).sumOf { size(it) }
+    }
     fun canGoBack() = view?.canGoBack() == true
     fun back(): Boolean = view?.takeIf { it.canGoBack() }?.let { it.goBack(); true } ?: false
 }

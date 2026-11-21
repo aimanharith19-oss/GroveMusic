@@ -93,6 +93,8 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 private val White = Color.White
@@ -188,7 +190,11 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
 
     var addTarget by remember { mutableStateOf<List<Long>?>(null) }
-    vm.playRadio = { list -> conn.playSongs(list, 0); stack = stack + Screen.Playing }
+    vm.playRadio = { list ->
+        val playingThis = conn.current.value?.mediaId == list.firstOrNull()?.id?.toString()
+        if (playingThis) conn.startRadio(list) else conn.playSongs(list, 0)
+        stack = stack + Screen.Playing
+    }
     vm.editTags = { id -> forward = true; stack = stack + Screen.EditTags(id) }
     BackHandler(addTarget != null) { addTarget = null }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
@@ -366,8 +372,27 @@ fun YtPage(accent: Color, active: Boolean) {
     LaunchedEffect(active) { while (active) { canBack = YtWeb.canGoBack(); kotlinx.coroutines.delay(400) } }
     BackHandler(active && canBack) { YtWeb.back() }
     Column(Modifier.fillMaxSize()) {
-        Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp,
-            modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
+        val ctx = LocalContext.current
+        LaunchedEffect(active) {
+            while (active) { withContext(Dispatchers.IO) { YtWeb.trim(ctx, Prefs(ctx).ytCacheGb) }; kotlinx.coroutines.delay(300_000) }
+        }
+        // shortcuts into YouTube Music
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 6.dp)) {
+            val chips = listOf<Pair<String, () -> Unit>>(
+                "home" to { YtWeb.go("/") },
+                "speed dial" to { YtWeb.shelf("speed dial") },
+                "forgotten favourites" to { YtWeb.shelf("forgotten favorites", "forgotten favourites") },
+                "trending" to { YtWeb.go("/charts") },
+                "new releases" to { YtWeb.go("/new_releases") },
+                "library" to { YtWeb.go("/library") },
+            )
+            itemsIndexed(chips) { i, (label, act) ->
+                Text(label, color = White, fontSize = 15.sp, modifier = Modifier
+                    .background(if (i == 0) accent else Color.White.copy(alpha = 0.10f)).tilt(act)
+                    .padding(horizontal = 12.dp, vertical = 7.dp))
+            }
+        }
         androidx.compose.ui.viewinterop.AndroidView(factory = { YtWeb.get(it) }, modifier = Modifier.fillMaxSize())
     }
 }
@@ -1041,6 +1066,15 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             }
             Switch(muteP, { muteP = it; prefs.pauseOnMute = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
+        var ytGb by remember { mutableFloatStateOf(prefs.ytCacheGb.toFloat()) }
+        val ctxS = LocalContext.current
+        val used = remember { YtWeb.cacheSize(ctxS) / (1024f * 1024 * 1024) }
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            Text("youtube music cache limit", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+            Text("up to ${ytGb.toInt()} GB · using %.2f GB now — cleared automatically when full".format(used), color = Dim, fontSize = 14.sp)
+            Slider(ytGb, { ytGb = it }, valueRange = 1f..10f, steps = 8, onValueChangeFinished = { prefs.ytCacheGb = ytGb.toInt() },
+                colors = SliderDefaults.colors(thumbColor = White, activeTrackColor = accent, inactiveTrackColor = White.copy(alpha = 0.2f)))
+        }
         var yt by remember { mutableStateOf(prefs.ytTab) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -1313,7 +1347,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 if (song != null) Icon(Icons.Rounded.Radio, "start radio", tint = White,
                     modifier = Modifier.padding(end = 8.dp).size(42.dp).clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.25f)).tilt {
-                            conn.playSongs(Radio.build(song, vm.songs.value), 0)
+                            conn.startRadio(Radio.build(song, vm.songs.value))
                             android.widget.Toast.makeText(ctx, "radio from ${song.title}", android.widget.Toast.LENGTH_SHORT).show()
                         }.padding(9.dp))
                 Icon(Icons.AutoMirrored.Rounded.QueueMusic, "up next", tint = White,
