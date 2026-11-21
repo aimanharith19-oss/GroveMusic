@@ -525,7 +525,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "folders", "genres", "countries", "playlists", "stats", "no info")
+    val pages = listOf("songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -555,7 +555,6 @@ fun HomeScreen(
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
                 "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
-                "countries" -> GroupTiles(vm, accent, "country", { Meta.countryOf(vm.getApplication(), it) ?: "unknown" }) { n, l -> open(Screen.Detail(n, "country · ${l.size} songs", l)) }
                 "no info" -> MissingPage(vm, accent)
                 "stats" -> StatsPage(vm, accent)
                 "folders" -> FoldersPage(vm, accent, pager.currentPage == p, { l, i -> conn.playSongs(l, i); open(Screen.Playing) }) { n, l -> open(Screen.Detail(n, "folder · ${l.size} songs", l)) }
@@ -799,7 +798,7 @@ fun PlaylistsPage(vm: MusicViewModel, accent: Color, onMix: (String, List<Song>)
         val ctxM = LocalContext.current
         val mixes = remember(vm.songs.value, store.liked.ids, vm.mixSalt.intValue, vm.metaTick.intValue) {
             Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue,
-                { Meta.genreOf(ctxM, it) }, { Meta.countryOf(ctxM, it) })
+                { Meta.genreOf(ctxM, it) })
         }
     val intro = rememberIntro()
     var naming by remember { mutableStateOf(false) }

@@ -168,7 +168,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun mixes() = Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, Prefs(this).mixSalt,
-        { Meta.genreOf(this, it) }, { Meta.countryOf(this, it) })
+        { Meta.genreOf(this, it) })
 
     // ── pause when the media volume is turned all the way down; resume when it comes back up ──
     private var muteReceiver: android.content.BroadcastReceiver? = null

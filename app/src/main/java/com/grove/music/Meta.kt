@@ -60,7 +60,7 @@ object Meta {
     suspend fun sync(ctx: Context, songs: List<Song>, onProgress: (Int, Int) -> Unit) = withContext(Dispatchers.IO) {
         load(ctx)
         val albums = songs.distinctBy { albumKey(it) }.filter { it.album != "unknown album" && synchronized(this@Meta) { !genre.containsKey(albumKey(it)) } }
-        val artists = songs.distinctBy { artistKey(it) }.filter { synchronized(this@Meta) { !country.containsKey(artistKey(it)) } }
+        val artists = emptyList<Song>() // country lookups turned off
         val total = albums.size + artists.size
         if (total == 0) return@withContext
         var done = 0
