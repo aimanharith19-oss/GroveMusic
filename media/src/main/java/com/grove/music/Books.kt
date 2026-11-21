@@ -46,6 +46,23 @@ object Books {
         }
     }.getOrDefault(emptyList())
 
+    data class Lib(val id: Long, val title: String, val cover: Any?, val unread: Int)
+
+    /** books in the library (favourites), A–Z, with unread chapter count */
+    fun library(ctx: Context): List<Lib> = runCatching {
+        val path = ctx.getDatabasePath("tachiyomi.db"); if (!path.exists()) return emptyList()
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("""
+                SELECT m._id, m.title, m.thumbnail_url,
+                  (SELECT COUNT(*) FROM chapters c WHERE c.manga_id = m._id AND c.read = 0)
+                FROM mangas m WHERE m.favorite = 1 ORDER BY m.title COLLATE NOCASE""".trimIndent(), null).use { c ->
+                val out = ArrayList<Lib>()
+                while (c.moveToNext()) out += Lib(c.getLong(0), c.getString(1) ?: "", cover(ctx, c.getString(2)), c.getInt(3))
+                out
+            }
+        }
+    }.getOrDefault(emptyList())
+
     /** last read chapter of each book, newest first */
     fun recent(ctx: Context, n: Int = 15) = history(ctx).filter { it.lastRead > 0 }.distinctBy { it.mangaId }.take(n)
 

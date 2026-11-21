@@ -40,6 +40,10 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
@@ -715,31 +719,55 @@ fun BooksPage(accent: Color) {
         Triple("downloads", Icons.Rounded.Download, "eu.kanade.tachiyomi.SHOW_DOWNLOADS"),
         Triple("more", Icons.Rounded.MoreHoriz, null),
     )
-    val intro = rememberIntro()
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-        item {
-            Box(Modifier.feather(0, intro).fillMaxWidth().height(140.dp).background(accent).tilt { go("eu.kanade.tachiyomi.SHOW_LIBRARY") }) {
-                Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(14.dp).size(44.dp))
-                Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
-                    Text("grove book", color = White, fontSize = 30.sp, fontWeight = FontWeight.Light)
-                    Text("your manga & books — tap to open the library", color = White.copy(alpha = 0.85f), fontSize = 13.sp)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-        items(tiles.drop(1).chunked(2).size) { r ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                tiles.drop(1).chunked(2)[r].forEachIndexed { i, (label, icon, action) ->
-                    Box(Modifier.feather(r * 2 + i + 1, intro).weight(1f).aspectRatio(1.6f).background(if ((r + i) % 2 == 0) dark else accent)
-                        .tilt { go(action) }) {
-                        Icon(icon, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(30.dp))
-                        Text(label, color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+    var lib by remember { mutableStateOf<List<Books.Lib>?>(null) }
+    var q by remember { mutableStateOf("") }
+    // refresh whenever the page comes back (e.g. after adding a book in browse)
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(owner) {
+        owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { lib = withContext(Dispatchers.IO) { Books.library(ctx) } }
+    }
+    val shown = lib.orEmpty().filter { q.isBlank() || it.title.contains(q, true) }
+    LazyVerticalGrid(GridCells.Adaptive(104.dp), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(tiles.drop(1)) { i, (label, icon, action) ->
+                    Row(Modifier.background(if (i % 2 == 0) accent else dark).tilt { go(action) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, null, tint = White, modifier = Modifier.size(18.dp))
+                        Text(label, color = White, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
                     }
                 }
             }
         }
-        item { ContinueReading(accent, Modifier.padding(top = 4.dp)) }
-        item { BackupBox(accent, Modifier.padding(top = 14.dp)) }
+        item(span = { GridItemSpan(maxLineSpan) }) { ContinueReading(accent) }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Column {
+                SectionLabel("library" + (lib?.let { " · ${it.size}" } ?: ""), accent)
+                if ((lib?.size ?: 0) > 8) androidx.compose.foundation.text.BasicTextField(q, { q = it }, singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = White, fontSize = 15.sp),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(accent),
+                    modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.08f)).padding(10.dp),
+                    decorationBox = { f -> if (q.isEmpty()) Text("search library", color = Dim, fontSize = 15.sp); f() })
+            }
+        }
+        if (lib != null && lib!!.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+            Text("your library is empty — tap browse to find books, or restore a backup below", color = Dim, fontSize = 13.sp)
+        }
+        items(shown.size, key = { shown[it].id }) { i ->
+            val b = shown[i]
+            Column(Modifier.tilt { Books.openBook(ctx, b.id) }) {
+                Box(Modifier.fillMaxWidth().aspectRatio(0.68f).background(lerp(accent, Color.Black, 0.4f))) {
+                    Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = White.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center))
+                    if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    if (b.unread > 0) Text("${b.unread}", color = White, fontSize = 11.sp,
+                        modifier = Modifier.align(Alignment.TopEnd).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+                }
+                Text(b.title, color = White, fontSize = 12.sp, maxLines = 2, lineHeight = 14.sp, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp))
+            }
+        }
+        item(span = { GridItemSpan(maxLineSpan) }) { BackupBox(accent, Modifier.padding(top = 10.dp)) }
     }
 }
 
