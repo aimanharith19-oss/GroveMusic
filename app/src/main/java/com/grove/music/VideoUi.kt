@@ -124,6 +124,30 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item { StreamBox(accent) }
+        // favourites first
+        val favs = vm.videoFavs.value
+        if (favs.isNotEmpty()) item {
+            SectionLabel("favourites", accent)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                itemsIndexed(favs) { _, k ->
+                    val v = if (k.startsWith("v:")) videos.firstOrNull { it.id.toString() == k.drop(2) } else videos.firstOrNull { it.parsed.isEpisode && it.parsed.title.equals(k.drop(5), true) }
+                    if (v != null) {
+                        val label = if (k.startsWith("show:")) k.drop(5) else v.parsed.title
+                        val poster by produceState<String?>(null, k) {
+                            value = if (k.startsWith("show:")) VideoMeta.show(ctx, label)?.poster else VideoMeta.movieFor(ctx, v)?.poster
+                        }
+                        Column(Modifier.width(110.dp).tilt { if (k.startsWith("show:")) open(Screen.Show(label)) else open(Screen.VideoInfo(v.id)) }) {
+                            Box(Modifier.width(110.dp).height(165.dp)) {
+                                if (poster != null) AsyncImage(poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                else VideoThumb(v, Modifier.matchParentSize())
+                                Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFFF4D6D), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp))
+                            }
+                            Text(label.lowercase(), color = W, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+            }
+        }
         if (videos.isEmpty()) item { Text("no videos found on your phone", color = D, fontSize = 16.sp) }
         if (noKey && movies.isNotEmpty()) item {
             Text("add a free TMDB key in settings to get movie posters, cast and info (TV shows work without it)",
@@ -232,6 +256,15 @@ private fun OnlineSearch(v: Video, accent: Color, done: () -> Unit) {
     }
 }
 
+@Composable
+fun FavButton(vm: MusicViewModel, key: String) {
+    val on = vm.isFav(key)
+    Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt { vm.toggleFav(key) }, contentAlignment = Alignment.Center) {
+        Icon(if (on) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (on) "remove favourite" else "favourite",
+            tint = if (on) Color(0xFFFF4D6D) else W, modifier = Modifier.size(24.dp))
+    }
+}
+
 /** "open network stream", like VLC: paste a link and play it; recent links are remembered */
 @Composable
 private fun StreamBox(accent: Color) {
@@ -320,6 +353,7 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                 Row(Modifier.padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("play", color = W, fontSize = 18.sp, modifier = Modifier.background(accent)
                         .tilt { VideoActivity.open(ctx, v, t?.name ?: v.parsed.title) }.padding(horizontal = 26.dp, vertical = 10.dp))
+                    FavButton(vm, "v:${v.id}")
                     if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
@@ -365,6 +399,7 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
             Column(Modifier.padding(horizontal = 20.dp)) {
                 t?.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = W.copy(alpha = 0.9f), fontSize = 15.sp, fontWeight = FontWeight.Light,
                     maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
+                Row(Modifier.padding(top = 12.dp)) { FavButton(vm, "show:$name") }
                 CastRow(t?.cast ?: emptyList(), accent, open)
                 Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("episodes", accent, Modifier.weight(1f))

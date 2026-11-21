@@ -217,6 +217,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val preferFlac = mutableStateOf(prefs.preferFlac)
 
     val videos = mutableStateOf<List<Video>>(emptyList())
+    val videoFavs = mutableStateOf(prefs.videoFavs)
+    fun isFav(k: String) = k in videoFavs.value
+    fun toggleFav(k: String) { val l = if (k in videoFavs.value) videoFavs.value - k else listOf(k) + videoFavs.value; videoFavs.value = l; prefs.videoFavs = l }
     /** every folder with videos (count), hidden ones included */
     val videoFolders = mutableStateOf<List<Pair<String, Int>>>(emptyList())
     val hiddenVideo = mutableStateOf(prefs.hiddenVideoFolders)
@@ -277,6 +280,10 @@ class Prefs(ctx: Context) {
     var streamUrls: List<String>
         get() = sp.getString("stream_urls", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("stream_urls", v.take(10).joinToString("\n")).apply()
+    /** favourite videos ("v:<id>" or "show:<name>") */
+    var videoFavs: List<String>
+        get() = sp.getString("video_favs", "")!!.split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("video_favs", v.joinToString("\n")).apply()
     var pins: List<String>
         get() = sp.getString("pins", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("pins", v.joinToString("\n")).apply()
