@@ -165,7 +165,6 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
     data object Search : Screen
-    data object YouTube : Screen
     data class EditTags(val songId: Long) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
@@ -224,7 +223,6 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
-                    Screen.YouTube -> YtScreen(accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.EditTags -> EditTagsScreen(s.songId, vm, accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
@@ -363,89 +361,6 @@ fun EditTagsScreen(songId: Long, vm: MusicViewModel, accent: Color, close: () ->
                     modifier = Modifier.padding(top = 10.dp))
             }
         }
-    }
-}
-
-/** Pivot page for the YouTube Music tab: shortcuts that open the full-screen web view. */
-@Composable
-fun YtLauncher(accent: Color, openYt: () -> Unit) {
-    val intro = rememberIntro()
-    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-        item {
-            Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp)
-            YtSearchBox(accent, Modifier.padding(top = 10.dp)) { openYt() }
-            Box(Modifier.feather(0, intro).padding(top = 10.dp).fillMaxWidth().height(150.dp).background(accent).tilt(openYt)) {
-                Icon(Icons.Rounded.PlayArrow, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(44.dp))
-                Text("open youtube music", color = White, fontSize = 26.sp, fontWeight = FontWeight.Light,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
-            }
-        }
-        val links = listOf("speed dial" to { YtWeb.pending = { YtWeb.shelf("speed dial") } },
-            "forgotten favourites" to { YtWeb.pending = { YtWeb.shelf("forgotten favorites", "forgotten favourites") } },
-            "trending" to { YtWeb.pending = { YtWeb.go("/charts") } },
-            "new releases" to { YtWeb.pending = { YtWeb.go("/new_releases") } },
-            "library" to { YtWeb.pending = { YtWeb.go("/library") } })
-        itemsIndexed(links) { i, (label, act) ->
-            Text(label, color = White, fontSize = 26.sp, fontWeight = FontWeight.Light,
-                modifier = Modifier.feather(i + 1, intro).fillMaxWidth().tilt { act(); openYt() }.padding(vertical = 8.dp))
-        }
-    }
-}
-
-/** Grove-style search box that opens YouTube Music's own results (e.g. "paramore" → their Paramore page). */
-@Composable
-fun YtSearchBox(accent: Color, modifier: Modifier, then: () -> Unit) {
-    var q by rememberSaveable { mutableStateOf("") }
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    fun go() {
-        if (q.isBlank()) return
-        val u = "/search?q=" + java.net.URLEncoder.encode(q.trim(), "UTF-8")
-        YtWeb.pending = { YtWeb.go(u) }
-        focus.clearFocus(); then()
-    }
-    OutlinedTextField(q, { q = it }, singleLine = true, placeholder = { Text("search youtube music") },
-        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = White) },
-        trailingIcon = { if (q.isNotEmpty()) Icon(Icons.AutoMirrored.Rounded.ArrowForward, "search", tint = White, modifier = Modifier.tilt { go() }) },
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { go() }),
-        shape = androidx.compose.ui.graphics.RectangleShape,
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, unfocusedBorderColor = White.copy(alpha = 0.4f),
-            cursorColor = White, focusedTextColor = White, unfocusedTextColor = White,
-            focusedContainerColor = Color.White.copy(alpha = 0.06f), unfocusedContainerColor = Color.White.copy(alpha = 0.06f)),
-        modifier = modifier.fillMaxWidth())
-}
-
-/** (Testing) YouTube Music website full screen, ad-blocked and styled like Grove. */
-@Composable
-fun YtScreen(accent: Color, close: () -> Unit) {
-    YtWeb.accent = accent.toArgb()
-    val ctx = LocalContext.current
-    LaunchedEffect(accent) { YtWeb.restyle() }
-    BackHandler { if (!YtWeb.back()) close() }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(300); YtWeb.pending?.invoke(); YtWeb.pending = null
-        while (true) { withContext(Dispatchers.IO) { YtWeb.trim(ctx, Prefs(ctx).ytCacheGb) }; kotlinx.coroutines.delay(300_000) }
-    }
-    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
-        YtSearchBox(accent, Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp)) { YtWeb.pending?.invoke(); YtWeb.pending = null }
-        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(vertical = 6.dp)) {
-            val chips = listOf<Pair<String, () -> Unit>>(
-                "grove" to close,
-                "home" to { YtWeb.go("/") },
-                "speed dial" to { YtWeb.shelf("speed dial") },
-                "forgotten favourites" to { YtWeb.shelf("forgotten favorites", "forgotten favourites") },
-                "trending" to { YtWeb.go("/charts") },
-                "new releases" to { YtWeb.go("/new_releases") },
-                "library" to { YtWeb.go("/library") },
-            )
-            itemsIndexed(chips) { i, (label, act) ->
-                Text(label, color = White, fontSize = 15.sp, modifier = Modifier
-                    .background(if (i == 0) accent else Color.White.copy(alpha = 0.10f)).tilt(act)
-                    .padding(horizontal = 12.dp, vertical = 7.dp))
-            }
-        }
-        androidx.compose.ui.viewinterop.AndroidView(factory = { YtWeb.get(it) }, modifier = Modifier.fillMaxWidth().weight(1f))
     }
 }
 
@@ -621,8 +536,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val prefsL = remember { Prefs(vm.getApplication()) }
-    val pages = (if (prefsL.ytTab) listOf("youtube") else emptyList()) + listOf("songs", "artists", "albums", "playlists")
+    val pages = listOf("songs", "artists", "albums", "playlists")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -651,7 +565,6 @@ fun HomeScreen(
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
-                "youtube" -> YtLauncher(accent) { open(Screen.YouTube) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -1116,23 +1029,6 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 Text("volume all the way down pauses; turning it up plays again", color = Dim, fontSize = 14.sp)
             }
             Switch(muteP, { muteP = it; prefs.pauseOnMute = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
-        }
-        var ytGb by remember { mutableFloatStateOf(prefs.ytCacheGb.toFloat()) }
-        val ctxS = LocalContext.current
-        val used = remember { YtWeb.cacheSize(ctxS) / (1024f * 1024 * 1024) }
-        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-            Text("youtube music cache limit", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-            Text("up to ${ytGb.toInt()} GB · using %.2f GB now — cleared automatically when full".format(used), color = Dim, fontSize = 14.sp)
-            Slider(ytGb, { ytGb = it }, valueRange = 1f..10f, steps = 8, onValueChangeFinished = { prefs.ytCacheGb = ytGb.toInt() },
-                colors = SliderDefaults.colors(thumbColor = White, activeTrackColor = accent, inactiveTrackColor = White.copy(alpha = 0.2f)))
-        }
-        var yt by remember { mutableStateOf(prefs.ytTab) }
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("youtube music tab (testing)", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                Text("YouTube Music website inside Grove, ads blocked · restart Grove to apply", color = Dim, fontSize = 14.sp)
-            }
-            Switch(yt, { yt = it; prefs.ytTab = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
         var carLyrics by remember { mutableStateOf(prefs.carLyrics) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
