@@ -19,6 +19,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -261,6 +264,26 @@ class VideoActivity : ComponentActivity() {
             })
         }) {
             AndroidView({ c -> VLCVideoLayout(c).also { player.attachViews(it, null, true, false) } }, Modifier.fillMaxSize())
+            // pinch out = zoom to fill the screen, pinch in = whole picture (like the YouTube app)
+            var zoomMsg by remember { mutableStateOf<String?>(null) }
+            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var scale = 1f
+                    do {
+                        val ev = awaitPointerEvent()
+                        if (ev.changes.count { it.pressed } >= 2) {
+                            scale *= ev.calculateZoom()
+                            ev.changes.forEach { it.consume() }
+                        }
+                    } while (ev.changes.any { it.pressed })
+                    if (scale > 1.15f && !fill) { fill = true; zoomMsg = "zoomed to fill" }
+                    else if (scale < 0.87f && fill) { fill = false; zoomMsg = "original" }
+                }
+            })
+            LaunchedEffect(zoomMsg) { if (zoomMsg != null) { delay(1200); zoomMsg = null } }
+            zoomMsg?.let { Text(it, color = Color.White, fontSize = 16.sp, modifier = Modifier.align(Alignment.Center)
+                .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 16.dp, vertical = 8.dp)) }
             LaunchedEffect(fill) { player.videoScale = if (fill) MediaPlayer.ScaleType.SURFACE_FILL else MediaPlayer.ScaleType.SURFACE_BEST_FIT }
             val accent = Color(Prefs(this@VideoActivity).accent)
             val posS = remember { mutableLongStateOf(0L) }; val durS = remember { mutableLongStateOf(0L) }
