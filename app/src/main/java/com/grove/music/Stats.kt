@@ -25,7 +25,7 @@ object StatsLog {
 }
 
 /** Everything the stats tab shows, worked out from the log. */
-class Stats(plays: List<Play>) {
+class Stats(private val plays: List<Play>) {
     private val cal = Calendar.getInstance()
     private fun key(ts: Long, f: Int): Int { cal.timeInMillis = ts; return when (f) {
         Calendar.DAY_OF_YEAR -> cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
