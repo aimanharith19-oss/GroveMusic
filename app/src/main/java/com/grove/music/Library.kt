@@ -148,6 +148,8 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 if (d % 5 == 0 || d == t) artistTick.intValue++
             }
             artistSync.value = null; artistTick.intValue++
+            // official track order for every album, kept for offline
+            songs.value.distinctBy { it.albumId }.forEach { AlbumOrder.load(getApplication(), it.album, it.artist) }
             syncing = false
         }
     }

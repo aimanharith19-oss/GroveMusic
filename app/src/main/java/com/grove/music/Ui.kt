@@ -1128,8 +1128,17 @@ fun AppBarButton(icon: ImageVector, onClick: () -> Unit) {
 }
 
 @Composable
-fun DetailScreen(d: Screen.Detail, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+fun DetailScreen(d0: Screen.Detail, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
     val intro = rememberIntro()
+    val ctx = LocalContext.current
+    // a single album: put its songs in the official order from the internet (cached for offline)
+    val isAlbum = d0.songs.isNotEmpty() && d0.songs.all { it.albumId == d0.songs[0].albumId }
+    var songs by remember(d0) { mutableStateOf(
+        if (isAlbum) AlbumOrder.sort(d0.songs, AlbumOrder.cached(ctx, d0.songs[0].album, d0.songs[0].artist)) else d0.songs) }
+    if (isAlbum) LaunchedEffect(d0) {
+        AlbumOrder.load(ctx, d0.songs[0].album, d0.songs[0].artist)?.let { songs = AlbumOrder.sort(d0.songs, it) }
+    }
+    val d = d0.copy(songs = songs)
     Box(Modifier.fillMaxSize()) {
     TintBackground(accent, 0.30f)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {

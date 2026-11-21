@@ -74,7 +74,9 @@ class PlaybackService : MediaLibraryService() {
         val all = songs()
         return when {
             parent == "songs" -> all.sortedBy { it.title.lowercase() }
-            parent.startsWith("al:") -> all.filter { it.albumId.toString() == parent.drop(3) }.sortedWith(compareBy({ it.track }, { it.title }))
+            parent.startsWith("al:") -> all.filter { it.albumId.toString() == parent.drop(3) }.let { l ->
+                AlbumOrder.sort(l, l.firstOrNull()?.let { AlbumOrder.cached(this, it.album, it.artist) })
+            }
             parent.startsWith("ar:") -> parent.drop(3).let { k ->
                 all.filter { s -> ArtistRepository.split(s.artist).any { ArtistRepository.key(it) == k } }
                     .sortedWith(compareBy({ it.album.lowercase() }, { it.track }))
