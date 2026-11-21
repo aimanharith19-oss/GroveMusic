@@ -213,9 +213,9 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     transitionSpec = { tween(if (targetState == EnterExitState.Visible) 420 else 160, easing = WpEase) },
                     label = "turnstile"
                 ) { when (it) { EnterExitState.PreEnter -> -70f * dir; EnterExitState.Visible -> 0f; EnterExitState.PostExit -> 70f * dir } }
-                Box(Modifier.fillMaxSize().graphicsLayer {
+                Box(Modifier.fillMaxSize().then(if (rot != 0f) Modifier.graphicsLayer {
                     rotationY = rot; transformOrigin = TransformOrigin(0f, 0.5f); cameraDistance = 18f * density
-                }) {
+                } else Modifier)) {
                 saved.SaveableStateProvider(if (s == Screen.Home) "home" else "${s::class.simpleName}:${s.hashCode()}") {
                 when (s) {
                     Screen.Home -> HomeScreen(vm, conn, accent, open) { permLauncher.launch(perms) }
