@@ -216,7 +216,8 @@ class MainActivity : BaseActivity() {
         lifecycleScope.launch { databaseRepository.awaitOpen() }
 
         // Do not let the launcher create a new activity http://stackoverflow.com/questions/16283079
-        if (!isTaskRoot) {
+        // GroveMedia opens this from its books tab, so it is usually not the task root — only bail for launcher relaunches
+        if (!isTaskRoot && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
             finish()
             return
         }
