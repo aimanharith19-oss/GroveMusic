@@ -622,7 +622,7 @@ fun HomeScreen(
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
     val prefsL = remember { Prefs(vm.getApplication()) }
-    val pages = listOf("songs", "artists", "albums", "playlists") + if (prefsL.ytTab) listOf("youtube") else emptyList()
+    val pages = (if (prefsL.ytTab) listOf("youtube") else emptyList()) + listOf("songs", "artists", "albums", "playlists")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
