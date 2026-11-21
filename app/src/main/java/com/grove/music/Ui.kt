@@ -164,6 +164,7 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
     data object Search : Screen
+    data object YouTube : Screen
     data class EditTags(val songId: Long) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
@@ -222,6 +223,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
+                    Screen.YouTube -> YtScreen(accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.EditTags -> EditTagsScreen(s.songId, vm, accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
@@ -363,23 +365,47 @@ fun EditTagsScreen(songId: Long, vm: MusicViewModel, accent: Color, close: () ->
     }
 }
 
-/** (Testing) YouTube Music website, ad-blocked and styled like Grove. */
+/** Pivot page for the YouTube Music tab: shortcuts that open the full-screen web view. */
 @Composable
-fun YtPage(accent: Color, active: Boolean) {
-    YtWeb.accent = accent.toArgb()
-    LaunchedEffect(accent) { YtWeb.restyle() }
-    var canBack by remember { mutableStateOf(false) }
-    LaunchedEffect(active) { while (active) { canBack = YtWeb.canGoBack(); kotlinx.coroutines.delay(400) } }
-    BackHandler(active && canBack) { YtWeb.back() }
-    Column(Modifier.fillMaxSize()) {
-        val ctx = LocalContext.current
-        LaunchedEffect(active) {
-            while (active) { withContext(Dispatchers.IO) { YtWeb.trim(ctx, Prefs(ctx).ytCacheGb) }; kotlinx.coroutines.delay(300_000) }
+fun YtLauncher(accent: Color, openYt: () -> Unit) {
+    val intro = rememberIntro()
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp)
+            Box(Modifier.feather(0, intro).padding(top = 10.dp).fillMaxWidth().height(150.dp).background(accent).tilt(openYt)) {
+                Icon(Icons.Rounded.PlayArrow, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(44.dp))
+                Text("open youtube music", color = White, fontSize = 26.sp, fontWeight = FontWeight.Light,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp))
+            }
         }
-        // shortcuts into YouTube Music
-        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 6.dp)) {
+        val links = listOf("speed dial" to { YtWeb.pending = { YtWeb.shelf("speed dial") } },
+            "forgotten favourites" to { YtWeb.pending = { YtWeb.shelf("forgotten favorites", "forgotten favourites") } },
+            "trending" to { YtWeb.pending = { YtWeb.go("/charts") } },
+            "new releases" to { YtWeb.pending = { YtWeb.go("/new_releases") } },
+            "library" to { YtWeb.pending = { YtWeb.go("/library") } })
+        itemsIndexed(links) { i, (label, act) ->
+            Text(label, color = White, fontSize = 26.sp, fontWeight = FontWeight.Light,
+                modifier = Modifier.feather(i + 1, intro).fillMaxWidth().tilt { act(); openYt() }.padding(vertical = 8.dp))
+        }
+    }
+}
+
+/** (Testing) YouTube Music website full screen, ad-blocked and styled like Grove. */
+@Composable
+fun YtScreen(accent: Color, close: () -> Unit) {
+    YtWeb.accent = accent.toArgb()
+    val ctx = LocalContext.current
+    LaunchedEffect(accent) { YtWeb.restyle() }
+    BackHandler { if (!YtWeb.back()) close() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300); YtWeb.pending?.invoke(); YtWeb.pending = null
+        while (true) { withContext(Dispatchers.IO) { YtWeb.trim(ctx, Prefs(ctx).ytCacheGb) }; kotlinx.coroutines.delay(300_000) }
+    }
+    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(vertical = 6.dp)) {
             val chips = listOf<Pair<String, () -> Unit>>(
+                "grove" to close,
                 "home" to { YtWeb.go("/") },
                 "speed dial" to { YtWeb.shelf("speed dial") },
                 "forgotten favourites" to { YtWeb.shelf("forgotten favorites", "forgotten favourites") },
@@ -393,7 +419,7 @@ fun YtPage(accent: Color, active: Boolean) {
                     .padding(horizontal = 12.dp, vertical = 7.dp))
             }
         }
-        androidx.compose.ui.viewinterop.AndroidView(factory = { YtWeb.get(it) }, modifier = Modifier.fillMaxSize())
+        androidx.compose.ui.viewinterop.AndroidView(factory = { YtWeb.get(it) }, modifier = Modifier.fillMaxWidth().weight(1f))
     }
 }
 
@@ -593,14 +619,13 @@ fun HomeScreen(
         }
         PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
         // the web tab handles its own swipes; leave it by tapping a header
-        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1,
-            userScrollEnabled = pages.getOrNull(pager.currentPage) != "youtube") { p ->
+        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
             when (pages[p]) {
                 "songs" -> SongsPage(songs, accent, vm.loading.value, askPerms, onShuffle = {
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
-                "youtube" -> YtPage(accent, pager.currentPage == p)
+                "youtube" -> YtLauncher(accent) { open(Screen.YouTube) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))

@@ -19,6 +19,8 @@ import java.io.ByteArrayInputStream
 object YtWeb {
     private var view: WebView? = null
     var accent: Int = 0xFF0050EF.toInt()
+    /** action to run once the web view screen is open (from the pivot shortcuts) */
+    var pending: (() -> Unit)? = null
 
     // ad & tracking hosts / paths (same idea as uBlock Origin's network filters)
     private val blockedHosts = listOf(
