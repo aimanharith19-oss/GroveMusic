@@ -100,8 +100,17 @@ object VideoMeta {
 
     suspend fun movie(ctx: Context, p: ParsedName): Title? = withContext(Dispatchers.IO) {
         val k = key(ctx); if (k.isEmpty()) return@withContext null
-        val r = json(ctx, "https://api.themoviedb.org/3/search/movie?api_key=$k&query=${enc(p.title)}" + (p.year?.let { "&year=$it" } ?: ""))
-            ?.optJSONArray("results").objs().firstOrNull() ?: return@withContext null
+        fun find(q: String, year: Int?) = json(ctx, "https://api.themoviedb.org/3/search/movie?api_key=$k&query=${enc(q)}" + (year?.let { "&year=$it" } ?: ""))
+            ?.optJSONArray("results").objs().firstOrNull()
+        // 1. file name (+year)  2. without the year  3. fewer words  4. whatever YouTube calls it (concerts, specials…)
+        val words = p.title.split(' ').filter { it.isNotBlank() }
+        val r = find(p.title, p.year) ?: p.year?.let { find(p.title, null) }
+            ?: (words.size - 1 downTo 2).firstNotNullOfOrNull { n -> find(words.take(n).joinToString(" "), null) }
+            ?: youtube(ctx, p.title)?.title?.let { yt ->
+                val clean = yt.replace(Regex("""(?i)\(.*?\)|\[.*?]|official|full (concert|movie|show)|\bhd\b|\b4k\b"""), " ").replace(Regex("""\s+"""), " ").trim()
+                find(clean, null) ?: find(clean.substringBefore(" - ").substringBefore(" | "), null)
+            }
+            ?: return@withContext null
         tmdbTitle(ctx, r.optLong("id"), false)
     }
 
