@@ -51,6 +51,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -372,6 +373,7 @@ fun YtLauncher(accent: Color, openYt: () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item {
             Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp)
+            YtSearchBox(accent, Modifier.padding(top = 10.dp)) { openYt() }
             Box(Modifier.feather(0, intro).padding(top = 10.dp).fillMaxWidth().height(150.dp).background(accent).tilt(openYt)) {
                 Icon(Icons.Rounded.PlayArrow, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(44.dp))
                 Text("open youtube music", color = White, fontSize = 26.sp, fontWeight = FontWeight.Light,
@@ -390,6 +392,29 @@ fun YtLauncher(accent: Color, openYt: () -> Unit) {
     }
 }
 
+/** Grove-style search box that opens YouTube Music's own results (e.g. "paramore" → their Paramore page). */
+@Composable
+fun YtSearchBox(accent: Color, modifier: Modifier, then: () -> Unit) {
+    var q by rememberSaveable { mutableStateOf("") }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    fun go() {
+        if (q.isBlank()) return
+        val u = "/search?q=" + java.net.URLEncoder.encode(q.trim(), "UTF-8")
+        YtWeb.pending = { YtWeb.go(u) }
+        focus.clearFocus(); then()
+    }
+    OutlinedTextField(q, { q = it }, singleLine = true, placeholder = { Text("search youtube music") },
+        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = White) },
+        trailingIcon = { if (q.isNotEmpty()) Icon(Icons.AutoMirrored.Rounded.ArrowForward, "search", tint = White, modifier = Modifier.tilt { go() }) },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { go() }),
+        shape = androidx.compose.ui.graphics.RectangleShape,
+        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, unfocusedBorderColor = White.copy(alpha = 0.4f),
+            cursorColor = White, focusedTextColor = White, unfocusedTextColor = White,
+            focusedContainerColor = Color.White.copy(alpha = 0.06f), unfocusedContainerColor = Color.White.copy(alpha = 0.06f)),
+        modifier = modifier.fillMaxWidth())
+}
+
 /** (Testing) YouTube Music website full screen, ad-blocked and styled like Grove. */
 @Composable
 fun YtScreen(accent: Color, close: () -> Unit) {
@@ -402,6 +427,7 @@ fun YtScreen(accent: Color, close: () -> Unit) {
         while (true) { withContext(Dispatchers.IO) { YtWeb.trim(ctx, Prefs(ctx).ytCacheGb) }; kotlinx.coroutines.delay(300_000) }
     }
     Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
+        YtSearchBox(accent, Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp)) { YtWeb.pending?.invoke(); YtWeb.pending = null }
         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(vertical = 6.dp)) {
             val chips = listOf<Pair<String, () -> Unit>>(
