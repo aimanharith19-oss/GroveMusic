@@ -218,6 +218,10 @@ class Prefs(ctx: Context) {
     var mixSalt: Int
         get() = sp.getInt("mix_salt", 0)
         set(v) = sp.edit().putInt("mix_salt", v).apply()
+    /** crossfade length in seconds (0 = off) */
+    var crossfade: Int
+        get() = sp.getInt("crossfade", 0)
+        set(v) = sp.edit().putInt("crossfade", v).apply()
     var carLyrics: Boolean
         get() = sp.getBoolean("car_lyrics", true)
         set(v) = sp.edit().putBoolean("car_lyrics", v).apply()

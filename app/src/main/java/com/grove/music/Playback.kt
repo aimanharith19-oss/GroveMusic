@@ -168,6 +168,45 @@ class PlaybackService : MediaLibraryService() {
 
     private fun mixes() = Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, Prefs(this).mixSalt)
 
+    // ── crossfade ───────────────────────────────────────────────────────────
+    // Near the end of a song, a second (session-less) player takes over the outgoing song's tail and fades
+    // it out while the main player moves on to the next song and fades in — so the two overlap.
+    private var fader: ExoPlayer? = null
+
+    private fun startCrossfade(player: ExoPlayer, prefs: Prefs) {
+        val f = ExoPlayer.Builder(this).setAudioAttributes(
+            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false
+        ).build().also { fader = it }
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(100)
+                val ms = prefs.crossfade * 1000L
+                if (ms <= 0 || !player.isPlaying || player.repeatMode == Player.REPEAT_MODE_ONE || !player.hasNextMediaItem()) continue
+                val dur = player.duration
+                if (dur <= 0 || dur < ms * 2 || dur - player.currentPosition > ms) continue
+                val item = player.currentMediaItem ?: continue
+                // get the tail ready on the fader first so there's no gap
+                f.setMediaItem(item, player.currentPosition); f.volume = 1f; f.playWhenReady = false; f.prepare()
+                var waited = 0
+                while (f.playbackState != Player.STATE_READY && waited < 1500) { kotlinx.coroutines.delay(20); waited += 20 }
+                if (f.playbackState != Player.STATE_READY) { f.stop(); continue }
+                f.seekTo(player.currentPosition); f.play()
+                player.volume = 0f
+                player.seekToNextMediaItem()
+                val steps = (ms / 50).coerceAtLeast(1)
+                for (i in 1..steps) {
+                    kotlinx.coroutines.delay(50)
+                    if (!player.playWhenReady) { f.pause(); while (!player.playWhenReady) kotlinx.coroutines.delay(100); f.play() }
+                    val x = i.toFloat() / steps
+                    // equal-power curve keeps the loudness steady through the blend
+                    f.volume = kotlin.math.cos(x * Math.PI / 2).toFloat()
+                    player.volume = kotlin.math.sin(x * Math.PI / 2).toFloat()
+                }
+                f.stop(); f.clearMediaItems(); player.volume = 1f
+            }
+        }
+    }
+
     private var lastSearch: List<Song> = emptyList()
     private fun search(q: String): List<Song> {
         val t = q.trim().lowercase()
@@ -201,6 +240,7 @@ class PlaybackService : MediaLibraryService() {
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
         val prefs = Prefs(this)
+        startCrossfade(player, prefs)
         // remember the queue so Android can offer "resume" in the media controls later
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -341,6 +381,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         scope.cancel()
+        fader?.release(); fader = null
         session?.run { player.release(); release() }
         session = null
         super.onDestroy()

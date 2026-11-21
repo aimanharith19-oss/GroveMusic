@@ -1005,6 +1005,14 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(online, { online = it; prefs.onlineLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
+        var cross by remember { mutableFloatStateOf(prefs.crossfade.toFloat()) }
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            Text("crossfade", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+            Text(if (cross < 1f) "off — songs change straight away" else "songs blend into each other over ${cross.toInt()} seconds",
+                color = Dim, fontSize = 14.sp)
+            Slider(cross, { cross = it }, valueRange = 0f..12f, steps = 11, onValueChangeFinished = { prefs.crossfade = cross.toInt() },
+                colors = SliderDefaults.colors(thumbColor = White, activeTrackColor = accent, inactiveTrackColor = White.copy(alpha = 0.2f)))
+        }
         var carLyrics by remember { mutableStateOf(prefs.carLyrics) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
