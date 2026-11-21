@@ -538,7 +538,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("home", "videos", "songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
+    val pages = listOf("home", "videos", "songs", "artists", "albums", "genres", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -559,7 +559,9 @@ fun HomeScreen(
                     .graphicsLayer { translationX = -pos() * 70.dp.toPx() }
                     .padding(start = 12.dp, top = 4.dp))
         }
-        PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
+        PivotHeaders(pages, pos, accent, onDrag = { dx -> pager.dispatchRawDelta(-dx * 2.2f) },
+            onDragEnd = { scope.launch { pager.animateScrollToPage((pager.currentPage + pager.currentPageOffsetFraction).let { Math.round(it) }, animationSpec = tween(350, easing = WpEase)) } })
+        { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
         // the web tab handles its own swipes; leave it by tapping a header
         HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
             when (pages[p]) {
@@ -617,9 +619,13 @@ fun AppBar(accent: Color, onSearch: () -> Unit, onMore: () -> Unit) {
 
 /** Pivot headers that glide with the finger, exactly in step with the pager. */
 @Composable
-fun PivotHeaders(pages: List<String>, pos: () -> Float, accent: Color, onSelect: (Int) -> Unit) {
+fun PivotHeaders(pages: List<String>, pos: () -> Float, accent: Color, onDrag: (Float) -> Unit = {}, onDragEnd: () -> Unit = {},
+                 onSelect: (Int) -> Unit) {
     val widths = remember { mutableStateListOf<Float>().apply { repeat(pages.size) { add(0f) } } }
-    Box(Modifier.fillMaxWidth().clipToBounds()) {
+    val drag by rememberUpdatedState(onDrag); val end by rememberUpdatedState(onDragEnd)
+    Box(Modifier.fillMaxWidth().clipToBounds().pointerInput(Unit) {
+        detectHorizontalDragGestures(onDragEnd = { end() }, onDragCancel = { end() }) { ch, d -> ch.consume(); drag(d) }
+    }) {
         Row(Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
             .graphicsLayer {
                 val p = pos()
@@ -1196,8 +1202,8 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
     val dial = remember(vm.pins.value, plays, songs, dialAuto) {
         val pinned = vm.pins.value.filter { it.startsWith("song:") }
         val auto = plays.groupBy { it.id }.entries.sortedByDescending { e -> e.value.sumOf { it.ms } }.mapNotNull { byId[it.key] }.map { "song:${it.id}" }
-        val fill = if (!dialAuto) emptyList() else auto.ifEmpty { songs.shuffled(kotlin.random.Random(dayNo())).take(9).map { "song:${it.id}" } }
-        (pinned + fill).distinct().take(9)
+        val fill = auto.ifEmpty { songs.shuffled(kotlin.random.Random(dayNo())).take(12).map { "song:${it.id}" } }
+        (pinned + fill).distinct().take(12)
     }
     val recent = remember(plays, songs) { plays.sortedByDescending { it.ts }.mapNotNull { byId[it.id] }.distinctBy { it.id }.take(15) }
     val rediscover = remember(plays, songs) {
@@ -1213,12 +1219,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
 
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionLabel("speed dial", accent, Modifier.weight(1f))
-                Text(if (dialAuto) "auto + pins" else "pins only", color = White, fontSize = 13.sp,
-                    modifier = Modifier.background(if (dialAuto) Color.White.copy(alpha = 0.1f) else accent)
-                        .tilt { dialAuto = !dialAuto; Prefs(ctx).dialAuto = dialAuto }.padding(horizontal = 10.dp, vertical = 5.dp))
-            }
+            SectionLabel("speed dial", accent)
             if (dial.isEmpty()) Text("nothing pinned yet — long-press any song and choose \"pin to speed dial\"", color = Dim, fontSize = 14.sp,
                 modifier = Modifier.padding(vertical = 10.dp))
             BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -1233,9 +1234,14 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                                 val pinned = key in vm.pins.value
                                 when (type) {
                                     "song" -> byId[v.toLongOrNull()]?.let { s ->
+                                        val photo = remember(s.artist, tick) { ArtistRepository.cached(ctx, ArtistRepository.primary(s.artist))?.image }
                                         FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) }, { vm.togglePin(key) },
-                                            { Art(s.artUri, accent, Modifier.matchParentSize()) },
-                                            { TileText(s.title, s.artist + if (s.year > 0) " · ${s.year}" else "") })
+                                            { Art(s.artUri, accent, Modifier.matchParentSize())
+                                              if (pinned) Icon(Icons.Rounded.PushPin, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp)) },
+                                            {   // back: the singer's photo with the song name
+                                                if (photo != null) AsyncImage(photo, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                                Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f)))))
+                                                TileText(s.title, s.artist + if (s.year > 0) " · ${s.year}" else "") })
                                     }
                                     "album" -> songs.filter { it.albumId.toString() == v }.takeIf { it.isNotEmpty() }?.let { l ->
                                         FlipTile(m, if (pinned) accent else dark, { open(Screen.Detail(l[0].album, l[0].artist, l)) }, null,
