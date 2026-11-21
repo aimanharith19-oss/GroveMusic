@@ -152,6 +152,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             eu.kanade.tachiyomi.data.backup.create.BackupCreateWorker.startNow(ctx, uri,
                 eu.kanade.tachiyomi.data.backup.create.BackupOptions(privateSettings = true))
         }
+        eu.kanade.tachiyomi.ui.grovemedia.MediaEmbed.install()
         com.grove.music.BookBridge.restore = { ctx, uri ->
             eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker.start(
                 androidx.work.WorkManager.getInstance(ctx), uri, eu.kanade.tachiyomi.data.backup.restore.RestoreOptions())

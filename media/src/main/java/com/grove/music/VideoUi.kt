@@ -20,7 +20,9 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -106,6 +108,93 @@ fun rememberRenamer(onDone: (Int) -> Unit): Pair<Renamer, (List<Pair<Video, Stri
 /** Videos tab: TV shows (posters), movies (posters), everything else (frames). */
 @Composable
 fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
+    var sub by rememberSaveable { mutableStateOf("all") }
+    Column(Modifier.fillMaxSize()) {
+        SubPivot(listOf("all", "favourites", "hidden"), sub, accent, { if (it == "hidden") vm.hiddenItems.value.size else 0 }) { sub = it }
+        Box(Modifier.weight(1f)) {
+            when (sub) {
+                "favourites" -> FavVideos(vm, accent, open)
+                "hidden" -> HiddenVideos(vm, accent)
+                else -> AllVideos(vm, accent, open)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoCard(v: Video, sub: String, modifier: Modifier, badge: (@Composable BoxScope.() -> Unit)? = null) {
+    Column(modifier) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            VideoThumb(v, Modifier.matchParentSize())
+            Text(fmtDur(v.duration), color = W, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
+                .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 1.dp))
+            badge?.invoke(this)
+        }
+        Text(v.name.substringBeforeLast('.'), color = W, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+        Text(sub, color = D, fontSize = 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun FavVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
+    val videos = vm.videos.value
+    val favs = vm.videoFavs.value.mapNotNull { k ->
+        if (k.startsWith("v:")) videos.firstOrNull { it.id.toString() == k.drop(2) }?.let { k to it }
+        else videos.firstOrNull { it.parsed.isEpisode && it.parsed.title.equals(k.drop(5), true) }?.let { k to it }
+    }
+    if (favs.isEmpty()) { Text("tap the heart on a video or show to add it here", color = D, fontSize = 15.sp, modifier = Modifier.padding(20.dp)); return }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        items(favs.chunked(2).size) { r ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                favs.chunked(2)[r].forEach { (k, v) ->
+                    val show = k.startsWith("show:")
+                    VideoCard(v, if (show) "tv show" else fmtDur(v.duration), Modifier.weight(1f)
+                        .tilt { if (show) open(Screen.Show(v.parsed.title)) else open(Screen.VideoInfo(v.id)) }) {
+                        Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFFF4D6D), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp))
+                    }
+                }
+                repeat(2 - favs.chunked(2)[r].size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HiddenVideos(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    val list = remember(vm.hiddenItems.value, vm.videos.value) { vm.hiddenList() }
+    var pick by remember { mutableStateOf<Video?>(null) }
+    pick?.let { v ->
+        AlertDialog(onDismissRequest = { pick = null }, containerColor = lerp(accent, Color.Black, 0.6f),
+            title = { Text(v.name, color = W, fontSize = 17.sp, maxLines = 2) },
+            text = {
+                Column {
+                    listOf("play" to { VideoActivity.open(ctx, v, v.parsed.title) },
+                        "unhide" to {
+                            vm.hideVideo("v:${v.id}", false)
+                            if (v.parsed.isEpisode) vm.hideVideo("show:${v.parsed.title.lowercase()}", false)
+                        }).forEach { (l, act) ->
+                        Text(l, color = W, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.fillMaxWidth().tilt { pick = null; act() }.padding(vertical = 8.dp))
+                    }
+                }
+            }, confirmButton = {})
+    }
+    if (list.isEmpty()) { Text("nothing hidden — videos you hide move here", color = D, fontSize = 15.sp, modifier = Modifier.padding(20.dp)); return }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item { Text("only you see these · tap for play or unhide", color = D, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+        items(list.chunked(2).size) { r ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                list.chunked(2)[r].forEach { v ->
+                    VideoCard(v, if (v.parsed.isEpisode) "${v.parsed.title} · hidden show" else "hidden", Modifier.weight(1f).tilt { pick = v })
+                }
+                repeat(2 - list.chunked(2)[r].size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val ctx = LocalContext.current
     val videos = vm.videos.value
     LaunchedEffect(Unit) { if (videos.isEmpty()) vm.loadVideos() }
@@ -123,30 +212,6 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val others = all.filter { it.id !in found }
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-        // favourites first
-        val favs = vm.videoFavs.value
-        if (favs.isNotEmpty()) item {
-            SectionLabel("favourites", accent)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                itemsIndexed(favs) { _, k ->
-                    val v = if (k.startsWith("v:")) videos.firstOrNull { it.id.toString() == k.drop(2) } else videos.firstOrNull { it.parsed.isEpisode && it.parsed.title.equals(k.drop(5), true) }
-                    if (v != null) {
-                        val label = if (k.startsWith("show:")) k.drop(5) else v.parsed.title
-                        val poster by produceState<String?>(null, k) {
-                            value = if (k.startsWith("show:")) VideoMeta.show(ctx, label)?.poster else VideoMeta.movieFor(ctx, v)?.poster
-                        }
-                        Column(Modifier.width(110.dp).tilt { if (k.startsWith("show:")) open(Screen.Show(label)) else open(Screen.VideoInfo(v.id)) }) {
-                            Box(Modifier.width(110.dp).height(165.dp)) {
-                                if (poster != null) AsyncImage(poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                                else VideoThumb(v, Modifier.matchParentSize())
-                                Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFFF4D6D), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp))
-                            }
-                            Text(label.lowercase(), color = W, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
-                }
-            }
-        }
         if (videos.isEmpty()) item { Text("no videos found on your phone", color = D, fontSize = 16.sp) }
         if (noKey && movies.isNotEmpty()) item {
             Text("add a free TMDB key in settings to get movie posters, cast and info (TV shows work without it)",
@@ -354,7 +419,7 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                         .tilt { VideoActivity.open(ctx, v, t?.name ?: v.parsed.title) }.padding(horizontal = 26.dp, vertical = 10.dp))
                     FavButton(vm, "v:${v.id}")
                     Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
-                        vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "hidden — show it again in settings", android.widget.Toast.LENGTH_SHORT).show()
+                        vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
                     if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
@@ -404,7 +469,7 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FavButton(vm, "show:$name")
                     Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
-                        vm.hideVideo("show:${name.lowercase()}"); android.widget.Toast.makeText(ctx, "hidden — show it again in settings", android.widget.Toast.LENGTH_SHORT).show()
+                        vm.hideVideo("show:${name.lowercase()}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
                     }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
                 }
                 CastRow(t?.cast ?: emptyList(), accent, open)

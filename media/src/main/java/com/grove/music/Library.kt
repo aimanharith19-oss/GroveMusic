@@ -230,7 +230,13 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         applyVideos()
     }
     val hiddenItems = mutableStateOf(prefs.hiddenVideos)
+    /** last item hidden, for the "moved to hidden · undo" bar */
+    val lastHidden = mutableStateOf<String?>(null)
+    /** hidden videos (single ones and whole shows) */
+    fun hiddenList(): List<Video> { val items = hiddenItems.value
+        return allVideos.filter { v -> "v:${v.id}" in items || (v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items) } }
     fun hideVideo(k: String, hide: Boolean = true) {
+        if (hide) lastHidden.value = k
         val h = if (hide) hiddenItems.value + k else hiddenItems.value - k
         hiddenItems.value = h; prefs.hiddenVideos = h; applyVideos()
     }

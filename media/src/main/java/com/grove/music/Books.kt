@@ -12,6 +12,10 @@ import java.util.Calendar
 object BookBridge {
     var backup: ((Context, Uri) -> Unit)? = null
     var restore: ((Context, Uri) -> Unit)? = null
+    /** draws a Grove Book screen ("library", "updates", "history", "browse", "more", "book") inside GroveMedia */
+    var embed: (@androidx.compose.runtime.Composable (String, androidx.compose.ui.Modifier) -> Unit)? = null
+    /** true while a Grove Book screen has opened something on top (a book, settings…) — GroveMedia then hides its headers */
+    val deep = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
 }
 
 data class BookRead(
@@ -63,6 +67,15 @@ object Books {
         }
     }.getOrDefault(emptyList())
 
+    /** unread chapters fetched in the last week for books in the library (the "updates" badge) */
+    fun newChapters(ctx: Context): Int = runCatching {
+        val path = ctx.getDatabasePath("tachiyomi.db"); if (!path.exists()) return 0
+        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            db.rawQuery("SELECT COUNT(*) FROM chapters c JOIN mangas m ON m._id = c.manga_id WHERE m.favorite = 1 AND c.read = 0 AND c.date_fetch > ?",
+                arrayOf((System.currentTimeMillis() - 7L * 86_400_000).toString())).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
+        }
+    }.getOrDefault(0)
+
     /** last read chapter of each book, newest first */
     fun recent(ctx: Context, n: Int = 15) = history(ctx).filter { it.lastRead > 0 }.distinctBy { it.mangaId }.take(n)
 
@@ -91,10 +104,30 @@ object Books {
         val today = r.filter { k(it.lastRead, Calendar.DAY_OF_YEAR) == k(now, Calendar.DAY_OF_YEAR) }.sumOf { it.readMs }
         val month = r.filter { k(it.lastRead, Calendar.MONTH) == k(now, Calendar.MONTH) }.sumOf { it.readMs }
         val year = r.filter { k(it.lastRead, Calendar.YEAR) == k(now, Calendar.YEAR) }.sumOf { it.readMs }
+        fun of(period: String) = when (period) { "today" -> today; "month" -> month; "year" -> year; else -> total }
         val chapters = r.size
         /** (book, ms, chapters) most read */
         val top = r.groupBy { it.mangaId }.map { (_, l) -> Triple(l.first(), l.sumOf { it.readMs }, l.size) }.sortedByDescending { it.second }.take(5)
     }
+}
+
+/** Offline book reading time (kept by the book tab's reader in "grove_offline"). */
+class BookTime(ctx: Context) {
+    private val p = ctx.getSharedPreferences("grove_offline", Context.MODE_PRIVATE).all
+    private val days = p.filterKeys { it.startsWith("day:") }.mapNotNull { (k, v) -> runCatching { java.time.LocalDate.parse(k.drop(4)) to (v as Number).toLong() }.getOrNull() }
+    private val now = java.time.LocalDate.now()
+    val today = days.filter { it.first == now }.sumOf { it.second }
+    val month = days.filter { it.first.year == now.year && it.first.month == now.month }.sumOf { it.second }
+    val year = days.filter { it.first.year == now.year }.sumOf { it.second }
+    val total = p.filterKeys { it.startsWith("time:") }.values.sumOf { (it as Number).toLong() }
+    fun of(period: String) = when (period) { "today" -> today; "month" -> month; "year" -> year; else -> total }
+    /** (title, ms, progress%) most read, all time */
+    val top = p.filterKeys { it.startsWith("time:") }.map { (k, v) ->
+        val uri = k.drop(5)
+        val name = Uri.decode(uri).substringAfterLast('/').substringAfterLast(':').substringBeforeLast('.')
+        val pages = (p["pages:$uri"] as? Int) ?: 0; val page = (p["page:$uri"] as? Int) ?: 0
+        Triple(name, (v as Number).toLong(), if (pages > 0) ((page + 1) * 100 / pages).coerceIn(0, 100) else null)
+    }.sortedByDescending { it.second }.take(5)
 }
 
 /** Back up / restore GroveMedia's own music & video data (playlists, likes, pins, stats, settings, saved info). */

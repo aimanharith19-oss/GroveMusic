@@ -3,6 +3,9 @@ package com.grove.music
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.runtime.key
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -170,6 +173,7 @@ sealed interface Screen {
     data object Home : Screen
     data object Playing : Screen
     data object Settings : Screen
+    data object NoInfo : Screen
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
     data object Search : Screen
@@ -231,6 +235,10 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                 when (s) {
                     Screen.Home -> HomeScreen(vm, conn, accent, open) { permLauncher.launch(perms) }
                     Screen.Playing -> NowPlayingScreen(vm, conn, prefs, accent, open)
+                    Screen.NoInfo -> Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                        Text("no info", color = White, fontSize = 44.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 20.dp, bottom = 8.dp))
+                        Box(Modifier.weight(1f)) { MissingPage(vm, accent) }
+                    }
                     Screen.Settings -> SettingsScreen(vm, prefs, accent, { accentInt = it; prefs.accent = it }) { vm.load() }
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
@@ -546,8 +554,9 @@ fun HomeScreen(
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
     // short top level; music keeps its own sections inside (songs, artists, albums…)
-    val pages = listOf("home", "music", "videos", "books", "stats")
+    val pages = listOf("home", "music", "videos", "comics", "book", "stats")
     val pager = rememberPagerState { pages.size }
+    val deep = BookBridge.deep.values.any { it }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
     val play: (List<Song>, Int) -> Unit = { l, i -> conn.playSongs(l, i); open(Screen.Playing) }
@@ -564,6 +573,7 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize()) {
     TintBackground(accent)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        AnimatedVisibility(!deep, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) { Column {
         // panorama title: huge, light, lowercase, slides slower than the content (parallax)
         Box(Modifier.fillMaxWidth().clipToBounds()) {
             Text("grovemedia", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
@@ -575,12 +585,9 @@ fun HomeScreen(
         PivotHeaders(pages, pos, accent, onDrag = { dx -> pager.dispatchRawDelta(-dx * 2.2f) },
             onDragEnd = { scope.launch { pager.animateScrollToPage((pager.currentPage + pager.currentPageOffsetFraction).let { Math.round(it) }, animationSpec = tween(350, easing = WpEase)) } })
         { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
+        } }
         // the web tab handles its own swipes; leave it by tapping a header
-        val bctx = LocalContext.current
-        LaunchedEffect(pager) {
-            snapshotFlow { pager.settledPage }.drop(1).collect { if (pages[it] == "books") Books.open(bctx, "eu.kanade.tachiyomi.SHOW_LIBRARY") }
-        }
-        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
+        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1, userScrollEnabled = !deep) { p ->
             when (pages[p]) {
                 "home" -> HubPage(vm, conn, accent, open)
                 "music" -> MusicPage(accent) { sec ->
@@ -589,21 +596,43 @@ fun HomeScreen(
                             conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                         }) { play(songs, it) }
                         "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
-                        "albums" -> AlbumsPage(songs, accent) { list ->
-                            open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
+                        "albums" -> {
+                            var byGenre by rememberSaveable { mutableStateOf(false) }
+                            Column {
+                                Row(Modifier.padding(start = 20.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    listOf(false to "by album", true to "by genre").forEach { (g, l) ->
+                                        Text(l, color = if (byGenre == g) White else Dim, fontSize = 14.sp, modifier = Modifier.tilt { byGenre = g })
+                                    }
+                                }
+                                Box(Modifier.weight(1f)) {
+                                    if (byGenre) GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
+                                    else AlbumsPage(songs, accent) { list ->
+                                        open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
+                                    }
+                                }
+                            }
                         }
-                        "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
                         "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
-                        "no info" -> MissingPage(vm, accent)
                     }
                 }
                 "videos" -> VideosPage(vm, accent, open)
-                "books" -> BooksPage(accent)
+                "comics" -> ComicsPage(accent)
+                "book" -> BookBridge.embed?.invoke("book", Modifier.fillMaxSize())
                 "stats" -> StatsPage(vm, accent)
             }
         }
-        if (conn.current.value != null) MiniPlayer(conn, accent, onMore = { menu = !menu }, onSearch = { open(Screen.Search) }) { open(Screen.Playing) }
-        else AppBar(accent, onSearch = { open(Screen.Search) }) { menu = !menu }
+        val undo = vm.lastHidden.value
+        if (undo != null && !deep) {
+            LaunchedEffect(undo) { kotlinx.coroutines.delay(5000); if (vm.lastHidden.value == undo) vm.lastHidden.value = null }
+            Row(Modifier.fillMaxWidth().background(accent).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("moved to hidden", color = White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text("undo", color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.tilt { vm.hideVideo(undo, false); vm.lastHidden.value = null })
+            }
+        }
+        if (!deep) {
+            if (conn.current.value != null) MiniPlayer(conn, accent, onMore = { menu = !menu }, onSearch = { open(Screen.Search) }) { open(Screen.Playing) }
+            else AppBar(accent, onSearch = { open(Screen.Search) }) { menu = !menu }
+        }
     }
     // Windows Phone app-bar menu: slides up from the bottom when "•••" is tapped
     AnimatedVisibility(menu, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
@@ -618,6 +647,7 @@ fun HomeScreen(
                 "open network stream" to { streamOpen = true },
                 "shuffle all" to { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) },
                 "rescan library" to { vm.load(); Unit },
+                "songs with no info" to { open(Screen.NoInfo) },
                 "settings" to { open(Screen.Settings) },
             ).forEach { (label, act) ->
                 Text(label, color = White, fontSize = 24.sp, fontWeight = FontWeight.Light,
@@ -684,20 +714,49 @@ fun BackupBox(accent: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/** Second row of pivot headers inside a tab (songs · artists…, library · updates…). */
+@Composable
+fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) -> Int = { 0 }, onSel: (String) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(18.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        itemsIndexed(items) { _, it ->
+            Column(Modifier.tilt { onSel(it) }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(it, color = if (it == sel) accent else Dim, fontSize = 17.sp)
+                    val b = badge(it)
+                    if (b > 0) Text("$b", color = White, fontSize = 11.sp, modifier = Modifier.padding(start = 5.dp).background(accent).padding(horizontal = 4.dp))
+                }
+                Box(Modifier.padding(top = 3.dp).height(2.dp).width(if (it == sel) 24.dp else 0.dp).background(accent))
+            }
+        }
+    }
+}
+
+/** Comics: Grove Book's library, updates, history, browse and more right here. */
+@Composable
+fun ComicsPage(accent: Color) {
+    val ctx = LocalContext.current
+    var sub by rememberSaveable { mutableStateOf("library") }
+    var updates by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) { updates = withContext(Dispatchers.IO) { Books.newChapters(ctx) } }
+    val deep = BookBridge.deep.values.any { it }
+    Column(Modifier.fillMaxSize()) {
+        AnimatedVisibility(!deep) {
+            Column {
+                SubPivot(listOf("library", "updates", "history", "browse", "more"), sub, accent, { if (it == "updates") updates else 0 }) { sub = it }
+                if (sub == "library") ContinueReading(accent, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp))
+            }
+        }
+        key(sub) { BookBridge.embed?.invoke(sub, Modifier.weight(1f).fillMaxWidth()) }
+    }
+}
+
 /** Music: a row of section chips (songs, artists, albums, genres, playlists, no info) over the content. */
 @Composable
 fun MusicPage(accent: Color, content: @Composable (String) -> Unit) {
-    val secs = listOf("songs", "artists", "albums", "genres", "playlists", "no info")
     var sec by rememberSaveable { mutableStateOf("songs") }
     Column(Modifier.fillMaxSize()) {
-        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 6.dp)) {
-            itemsIndexed(secs) { _, s ->
-                Text(s, color = White, fontSize = 15.sp, modifier = Modifier
-                    .background(if (s == sec) accent else Color.White.copy(alpha = 0.08f)).tilt { sec = s }
-                    .padding(horizontal = 12.dp, vertical = 6.dp))
-            }
-        }
+        SubPivot(listOf("songs", "artists", "albums", "playlists"), sec, accent) { sec = it }
         Box(Modifier.weight(1f)) { content(sec) }
     }
 }
@@ -838,11 +897,15 @@ fun LetterTile(c: Char, accent: Color) {
 }
 
 @Composable
-fun SongRow(title: String, sub: String, songId: Long? = null, onClick: () -> Unit) {
+fun SongRow(title: String, sub: String, songId: Long? = null, art: Uri? = null, accent: Color? = null, onClick: () -> Unit) {
     val add = LocalAddToPlaylist.current
-    Column(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { { add(listOf(it)) } }, onClick = onClick).padding(vertical = 8.dp)) {
-        Text(title, color = White, fontSize = 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(sub, color = Dim, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { { add(listOf(it)) } }, onClick = onClick).padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        if (accent != null) Art(art, lerp(accent, Color.Black, 0.4f), Modifier.size(46.dp).padding(end = 0.dp))
+        Column(Modifier.padding(start = if (accent != null) 12.dp else 0.dp)) {
+            Text(title, color = White, fontSize = if (accent != null) 19.sp else 23.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(sub, color = Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -873,7 +936,7 @@ fun SongsPage(songs: List<Song>, accent: Color, loading: Boolean, askPerms: () -
             val c = letterOf(s.title)
             if (c != prev) { prev = c; headers[c] = idx++; val k = n++; item(key = "h$i") { Box(Modifier.feather(k, intro)) { LetterTile(c, accent) } } }
             val k = n++; idx++
-            item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.format}", s.id) { onPlay(i) } } }
+            item(key = s.id) { Box(Modifier.feather(k, intro)) { SongRow(s.title, "${s.artist} · ${s.album}", s.id, s.artUri, accent) { onPlay(i) } } }
         }
     }
     }
@@ -1160,8 +1223,198 @@ private fun hrs(ms: Long): String = when {
 }
 
 /** Listening statistics: hours, chart, favourites, top 10 by period, record day/month/year. */
+/** Stats: all · music · videos · comics · book */
 @Composable
 fun StatsPage(vm: MusicViewModel, accent: Color) {
+    var sub by rememberSaveable { mutableStateOf("all") }
+    Column(Modifier.fillMaxSize()) {
+        SubPivot(listOf("all", "music", "videos", "comics", "book"), sub, accent) { sub = it }
+        Box(Modifier.weight(1f)) {
+            when (sub) {
+                "music" -> MusicStats(vm, accent)
+                "videos" -> VideoStats(vm, accent)
+                "comics" -> ComicStats(accent)
+                "book" -> BookStats(accent)
+                else -> AllStats(vm, accent)
+            }
+        }
+    }
+}
+
+private class AllData(val music: Stats, val watch: Stats, val comics: Books.ReadStats, val book: BookTime)
+
+@Composable
+private fun AllStats(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    var d by remember { mutableStateOf<AllData?>(null) }
+    var period by rememberSaveable { mutableStateOf("month") }
+    LaunchedEffect(Unit) { d = withContext(Dispatchers.IO) {
+        AllData(Stats(StatsLog.read(ctx)), Stats(StatsLog.readWatch(ctx)), Books.ReadStats(Books.history(ctx)), BookTime(ctx)) } }
+    val x = d ?: run { EmptyMsg("loading…"); return }
+    fun ms(s: Stats) = when (period) { "today" -> s.todayMs; "month" -> s.monthMs; "year" -> s.yearMs; else -> s.totalMs }
+    val parts = listOf("music" to ms(x.music), "videos" to ms(x.watch), "comics" to x.comics.of(period), "book" to x.book.of(period))
+    val total = parts.sumOf { it.second }
+    val shades = listOf(1f, 0.6f, 0.35f, 0.18f)
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                listOf("today", "month", "year", "all").forEach { p ->
+                    Text(if (p == "all") "all time" else if (p == "today") p else "this $p", color = if (period == p) White else Dim, fontSize = 14.sp,
+                        modifier = Modifier.tilt { period = p })
+                }
+            }
+            Column(Modifier.padding(top = 10.dp).fillMaxWidth().background(accent).padding(12.dp)) {
+                Text(hrs(total), color = White, fontSize = 36.sp, fontWeight = FontWeight.Light)
+                Text("total time", color = White.copy(alpha = 0.85f), fontSize = 12.sp)
+                Row(Modifier.padding(top = 8.dp).fillMaxWidth().height(6.dp)) {
+                    parts.forEachIndexed { i, (_, v) ->
+                        if (v > 0) Box(Modifier.weight(v.toFloat()).fillMaxHeight().background(lerp(Color.Black, White, shades[i])))
+                    }
+                    if (total == 0L) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
+                }
+            }
+            val subs = listOf("${x.music.top(period, 9999).sumOf { it.second }} plays", "${x.watch.top(period, 9999).size} watched",
+                "${x.comics.chapters} chapters", "${x.book.top.size} books")
+            parts.chunked(2).forEachIndexed { r, row ->
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEachIndexed { j, (l, v) ->
+                        Column(Modifier.weight(1f).background(lerp(accent, Color.Black, 0.55f)).padding(10.dp)) {
+                            Text(hrs(v), color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                            Text("$l · ${subs[r * 2 + j]}", color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+            }
+            SectionLabel("top", accent, Modifier.padding(top = 14.dp))
+            @Composable fun TopRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, sub: String) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, null, tint = accent, modifier = Modifier.size(22.dp))
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(title, color = White, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(sub, color = Dim, fontSize = 11.sp)
+                    }
+                }
+            }
+            val songs = vm.songs.value.associateBy { it.id }
+            x.music.top(period, 1).firstOrNull()?.let { (id, n, _) -> TopRow(Icons.Rounded.MusicNote, songs[id]?.title ?: "song", "song · $n plays") }
+            x.watch.top(period, 1).firstOrNull()?.let { (id, _, m) ->
+                TopRow(Icons.Rounded.Movie, vm.videos.value.firstOrNull { it.id == id }?.parsed?.title ?: "video", "video · ${hrs(m)}") }
+            x.comics.top.firstOrNull()?.let { (b, m, ch) -> TopRow(Icons.AutoMirrored.Rounded.MenuBook, b.title, "comic · $ch chapters · ${hrs(m)}") }
+            x.book.top.firstOrNull()?.let { (t, m, _) -> TopRow(Icons.Rounded.Book, t, "book · ${hrs(m)}") }
+            if (total == 0L) Text("nothing yet in this period", color = Dim, fontSize = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun VideoStats(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        // videos
+        item {
+            val w = remember { Stats(StatsLog.readWatch(ctx)) }
+            if (w.all.isEmpty()) Text("watch something — your video stats will show up here", color = Dim, fontSize = 16.sp)
+            else {
+                SectionLabel("videos watched", accent, Modifier.padding(top = 14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("today" to w.todayMs, "this month" to w.monthMs, "this year" to w.yearMs, "all time" to w.totalMs).forEachIndexed { i, (l, v) ->
+                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                val vids = vm.videos.value.associateBy { it.id }
+                w.top("all", 5).forEachIndexed { i, (id, _, ms) ->
+                    val v = vids[id]
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
+                        if (v != null) VideoThumb(v, Modifier.width(80.dp).height(45.dp))
+                        Text(v?.let { it.parsed.title + if (it.parsed.isEpisode) " · S${it.parsed.season}E${it.parsed.episode}" else "" } ?: "removed video",
+                            color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp).weight(1f))
+                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComicStats(accent: Color) {
+    val ctx = LocalContext.current
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        // books
+        item {
+            var rs by remember { mutableStateOf<Books.ReadStats?>(null) }
+            LaunchedEffect(Unit) { rs = withContext(Dispatchers.IO) { Books.ReadStats(Books.history(ctx)) } }
+            if (rs?.chapters == 0) Text("read some comics — your reading stats will show up here", color = Dim, fontSize = 16.sp)
+            rs?.takeIf { it.chapters > 0 }?.let { r ->
+                SectionLabel("comics read", accent, Modifier.padding(top = 14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("today" to r.today, "this month" to r.month, "this year" to r.year, "all time" to r.total).forEachIndexed { i, (l, v) ->
+                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                Text("${r.chapters} chapters read", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                r.top.forEachIndexed { i, (b, ms, ch) ->
+                    Row(Modifier.fillMaxWidth().tilt { Books.openBook(ctx, b.mangaId) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
+                        Box(Modifier.width(34.dp).height(50.dp).background(lerp(accent, Color.Black, 0.4f))) {
+                            if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                        }
+                        Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                            Text(b.title, color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("$ch chapters", color = Dim, fontSize = 11.sp)
+                        }
+                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookStats(accent: Color) {
+    val ctx = LocalContext.current
+    var b by remember { mutableStateOf<BookTime?>(null) }
+    LaunchedEffect(Unit) { b = withContext(Dispatchers.IO) { BookTime(ctx) } }
+    val x = b ?: return
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            if (x.total == 0L) Text("read a book in the book tab — your reading stats will show up here", color = Dim, fontSize = 16.sp)
+            else {
+                SectionLabel("books read", accent)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("today" to x.today, "this month" to x.month, "this year" to x.year, "all time" to x.total).forEachIndexed { i, (l, v) ->
+                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                SectionLabel("most read", accent, Modifier.padding(top = 14.dp))
+                x.top.forEachIndexed { i, (t, ms, pr) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(t, color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (pr != null) Text("$pr% read", color = Dim, fontSize = 11.sp)
+                        }
+                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusicStats(vm: MusicViewModel, accent: Color) {
     val ctx = LocalContext.current
     var st by remember { mutableStateOf<Stats?>(null) }
     var period by remember { mutableStateOf("month") }
@@ -1230,62 +1483,6 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
                         Text(label, color = Dim, fontSize = 15.sp, modifier = Modifier.width(100.dp))
                         Text(fmt.format(java.util.Date(ts)), color = White, fontSize = 16.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
                         Text(hrs(ms), color = accent, fontSize = 16.sp)
-                    }
-                }
-            }
-        }
-        // books
-        item {
-            var rs by remember { mutableStateOf<Books.ReadStats?>(null) }
-            LaunchedEffect(Unit) { rs = withContext(Dispatchers.IO) { Books.ReadStats(Books.history(ctx)) } }
-            rs?.takeIf { it.chapters > 0 }?.let { r ->
-                SectionLabel("books read", accent, Modifier.padding(top = 14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("today" to r.today, "this month" to r.month, "this year" to r.year, "all time" to r.total).forEachIndexed { i, (l, v) ->
-                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
-                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
-                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-                }
-                Text("${r.chapters} chapters read", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                r.top.forEachIndexed { i, (b, ms, ch) ->
-                    Row(Modifier.fillMaxWidth().tilt { Books.openBook(ctx, b.mangaId) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
-                        Box(Modifier.width(34.dp).height(50.dp).background(lerp(accent, Color.Black, 0.4f))) {
-                            if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                        }
-                        Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                            Text(b.title, color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("$ch chapters", color = Dim, fontSize = 11.sp)
-                        }
-                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-        // videos
-        item {
-            val w = remember(st) { Stats(StatsLog.readWatch(ctx)) }
-            if (w.all.isNotEmpty()) {
-                SectionLabel("videos watched", accent, Modifier.padding(top = 14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("today" to w.todayMs, "this month" to w.monthMs, "this year" to w.yearMs, "all time" to w.totalMs).forEachIndexed { i, (l, v) ->
-                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
-                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
-                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
-                        }
-                    }
-                }
-                val vids = vm.videos.value.associateBy { it.id }
-                w.top("all", 5).forEachIndexed { i, (id, _, ms) ->
-                    val v = vids[id]
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
-                        if (v != null) VideoThumb(v, Modifier.width(80.dp).height(45.dp))
-                        Text(v?.let { it.parsed.title + if (it.parsed.isEpisode) " · S${it.parsed.season}E${it.parsed.episode}" else "" } ?: "removed video",
-                            color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp).weight(1f))
-                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
                     }
                 }
             }
