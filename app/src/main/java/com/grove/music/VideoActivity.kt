@@ -111,6 +111,10 @@ class VideoActivity : ComponentActivity() {
     companion object {
         const val ACT_AUDIO = "grove.video.AUDIO"
         var current: VideoActivity? = null
+        /** play anything VLC can open from the internet: http(s) files, HLS (.m3u8), DASH, RTSP, RTMP, IPTV… */
+        fun openUrl(ctx: Context, url: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
+            .putExtra("url", url).putExtra("title", Uri.parse(url).let { (it.lastPathSegment ?: it.host ?: url) })
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         fun open(ctx: Context, v: Video, title: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
             .putExtra("id", v.id).putExtra("title", title).putExtra("w", v.w).putExtra("h", v.h)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -158,6 +162,14 @@ class VideoActivity : ComponentActivity() {
         videoId = i.getLongExtra("id", 0)
         vw = i.getIntExtra("w", 16).coerceAtLeast(1); vh = i.getIntExtra("h", 9).coerceAtLeast(1)
         title.value = i.getStringExtra("title").orEmpty()
+        i.getStringExtra("url")?.let { url ->
+            val m = Media(lib, Uri.parse(url)).apply { addOption(":network-caching=1500"); setHWDecoderEnabled(true, false) }
+            player.media = m; m.release()
+            @Suppress("DEPRECATION")
+            (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            player.play(); thumb = null
+            return
+        }
         val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
         pfd?.close()
         pfd = contentResolver.openFileDescriptor(uri, "r") ?: return
@@ -258,7 +270,8 @@ class VideoActivity : ComponentActivity() {
                     0f to Color.Black.copy(alpha = 0.75f), 0.3f to Color.Transparent, 0.62f to Color.Transparent,
                     1f to androidx.compose.ui.graphics.lerp(accent, Color.Black, 0.6f).copy(alpha = 0.92f)))) {
                     // header: Grove style — small caps label, big light lowercase title
-                    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp), verticalAlignment = Alignment.Top) {
+                    Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).statusBarsPadding()
+                        .padding(start = 12.dp, end = 12.dp, top = 6.dp), verticalAlignment = Alignment.Top) {
                         Btn(Icons.AutoMirrored.Rounded.ArrowBack, outline = false) { finish() }
                         Column(Modifier.weight(1f).padding(start = 6.dp)) {
                             Text("NOW PLAYING · VIDEO", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
@@ -267,7 +280,8 @@ class VideoActivity : ComponentActivity() {
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
+                        .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
                         SeekBar(posS, durS, accent) { player.time = it }
                         TimeRow(posS, durS)
                         Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

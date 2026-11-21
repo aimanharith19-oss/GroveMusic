@@ -274,6 +274,9 @@ class Prefs(ctx: Context) {
     var dialAuto: Boolean
         get() = sp.getBoolean("dial_auto", true)
         set(v) = sp.edit().putBoolean("dial_auto", v).apply()
+    var streamUrls: List<String>
+        get() = sp.getString("stream_urls", "")!!.split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("stream_urls", v.take(10).joinToString("\n")).apply()
     var pins: List<String>
         get() = sp.getString("pins", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("pins", v.joinToString("\n")).apply()

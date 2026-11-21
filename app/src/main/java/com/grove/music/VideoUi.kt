@@ -123,6 +123,7 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val others = all.filter { it.id !in found }
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item { StreamBox(accent) }
         if (videos.isEmpty()) item { Text("no videos found on your phone", color = D, fontSize = 16.sp) }
         if (noKey && movies.isNotEmpty()) item {
             Text("add a free TMDB key in settings to get movie posters, cast and info (TV shows work without it)",
@@ -228,6 +229,41 @@ private fun OnlineSearch(v: Video, accent: Color, done: () -> Unit) {
         }
         if (VideoMeta.pick(ctx, v) != null) Text("forget my pick", color = D, fontSize = 13.sp,
             modifier = Modifier.tilt { VideoMeta.setPick(ctx, v, null); done() }.padding(top = 6.dp))
+    }
+}
+
+/** "open network stream", like VLC: paste a link and play it; recent links are remembered */
+@Composable
+private fun StreamBox(accent: Color) {
+    val ctx = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    var url by remember { mutableStateOf("") }
+    var recent by remember { mutableStateOf(Prefs(ctx).streamUrls) }
+    fun play(u: String) {
+        val x = u.trim(); if (x.isEmpty()) return
+        val l = (listOf(x) + recent.filter { it != x }); Prefs(ctx).streamUrls = l; recent = l.take(10)
+        VideoActivity.openUrl(ctx, x)
+    }
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+        Row(Modifier.fillMaxWidth().background(lerp(accent, Color.Black, 0.5f)).tilt { open = !open }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Language, null, tint = W)
+            Text("open network stream", color = W, fontSize = 18.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 10.dp).weight(1f))
+            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = W)
+        }
+        if (open) {
+            androidx.compose.material3.OutlinedTextField(url, { url = it }, singleLine = true, placeholder = { Text("https://…  .m3u8  rtsp://  rtmp://") },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                trailingIcon = { Icon(Icons.Rounded.PlayArrow, "play", tint = W, modifier = Modifier.tilt { play(url) }) },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Go,
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onGo = { play(url) }),
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = W, focusedTextColor = W, unfocusedTextColor = W))
+            Text("plays links to video/audio files and live streams (HLS, DASH, RTSP, RTMP, IPTV)", color = D, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+            recent.forEach { u ->
+                Text(u, color = W, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().tilt { play(u) }.padding(vertical = 7.dp))
+            }
+        }
     }
 }
 
