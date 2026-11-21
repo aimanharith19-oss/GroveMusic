@@ -94,6 +94,7 @@ import coil.compose.AsyncImage
 import coil.imageLoader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -536,7 +537,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists", "no info")
+    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -568,6 +569,7 @@ fun HomeScreen(
                 "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
                 "countries" -> GroupTiles(vm, accent, "country", { Meta.countryOf(vm.getApplication(), it) ?: "unknown" }) { n, l -> open(Screen.Detail(n, "country · ${l.size} songs", l)) }
                 "no info" -> MissingPage(vm, accent)
+                "stats" -> StatsPage(vm, accent)
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -1001,6 +1003,119 @@ fun GroupTiles(vm: MusicViewModel, accent: Color, what: String, keyOf: (Song) ->
                     }
                 }
                 if (groups.chunked(2)[row].size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+private fun hrs(ms: Long): String = when {
+    ms >= 3_600_000 -> "%.1f h".format(ms / 3_600_000f)
+    else -> "${ms / 60_000} min"
+}
+
+/** Listening statistics: hours, chart, favourites, top 10 by period, record day/month/year. */
+@Composable
+fun StatsPage(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    var st by remember { mutableStateOf<Stats?>(null) }
+    var period by remember { mutableStateOf("month") }
+    var chart by remember { mutableStateOf("days") }
+    LaunchedEffect(Unit) { while (true) { st = withContext(Dispatchers.IO) { Stats(StatsLog.read(ctx)) }; kotlinx.coroutines.delay(60_000) } }
+    val s = st ?: run { EmptyMsg("loading…"); return }
+    val fmtDay = remember { java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()) }
+    val fmtMonth = remember { java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()) }
+    val fmtYear = remember { java.text.SimpleDateFormat("yyyy", java.util.Locale.getDefault()) }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        if (s.all.isEmpty()) item { Text("play some music — your listening stats will show up here", color = Dim, fontSize = 16.sp) }
+        item {
+            // headline tiles
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("today" to s.todayMs, "this month" to s.monthMs, "this year" to s.yearMs, "all time" to s.totalMs).forEachIndexed { i, (l, v) ->
+                    Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                        Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                        Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                    }
+                }
+            }
+        }
+        item {
+            Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("listening", accent, Modifier.weight(1f))
+                listOf("days", "months").forEach { c ->
+                    Text(c, color = if (chart == c) White else Dim, fontSize = 14.sp, modifier = Modifier.tilt { chart = c }.padding(8.dp))
+                }
+            }
+            val data = if (chart == "days") s.lastDays(30) else s.lastMonths()
+            val max = (data.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
+            Canvas(Modifier.fillMaxWidth().height(140.dp)) {
+                val w = size.width / data.size
+                data.forEachIndexed { i, (_, v) ->
+                    val h = size.height * 0.92f * v / max
+                    drawRect(if (i == data.lastIndex) accent else accent.copy(alpha = 0.55f),
+                        topLeft = androidx.compose.ui.geometry.Offset(i * w + w * 0.12f, size.height - h),
+                        size = androidx.compose.ui.geometry.Size(w * 0.76f, h))
+                }
+                drawLine(Color.White.copy(alpha = 0.2f), androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height))
+            }
+            Row { Text(if (chart == "days") "30 days ago" else "12 months ago", color = Dim, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(if (chart == "days") "today" else "this month", color = Dim, fontSize = 11.sp) }
+        }
+        // favourite (most played ever)
+        s.top("all", 1).firstOrNull()?.let { (id, n, ms) -> vm.song(id.toString())?.let { song ->
+            item {
+                SectionLabel("favourite song", accent, Modifier.padding(top = 14.dp))
+                Row(Modifier.fillMaxWidth().background(lerp(accent, Color.Black, 0.5f)).padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Art(song.artUri, accent, Modifier.size(72.dp))
+                    Column(Modifier.padding(start = 12.dp)) {
+                        Text(song.title, color = White, fontSize = 20.sp, fontWeight = FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(song.artist, color = White.copy(alpha = 0.75f), fontSize = 14.sp, maxLines = 1)
+                        Text("$n plays · ${hrs(ms)}", color = White, fontSize = 13.sp)
+                    }
+                }
+            }
+        } }
+        // record day / month / year
+        item {
+            SectionLabel("records", accent, Modifier.padding(top = 14.dp))
+            listOf(Triple("best day", Calendar.DAY_OF_YEAR, fmtDay), Triple("best month", Calendar.MONTH, fmtMonth),
+                Triple("best year", Calendar.YEAR, fmtYear)).forEach { (label, f, fmt) ->
+                s.best(f)?.let { (ts, ms) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Text(label, color = Dim, fontSize = 15.sp, modifier = Modifier.width(100.dp))
+                        Text(fmt.format(java.util.Date(ts)), color = White, fontSize = 16.sp, fontWeight = FontWeight.Light, modifier = Modifier.weight(1f))
+                        Text(hrs(ms), color = accent, fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+        // top 10 by period
+        item {
+            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("top 10", accent, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("today", "month", "year", "all").forEach { p ->
+                    Text(if (p == "all") "all time" else if (p == "today") p else "this $p", color = White, fontSize = 14.sp,
+                        modifier = Modifier.background(if (period == p) accent else Color.White.copy(alpha = 0.08f)).tilt { period = p }
+                            .padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+            }
+        }
+        val top = s.top(period)
+        if (top.isEmpty()) item { Text("nothing played yet in this period", color = Dim, fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp)) }
+        itemsIndexed(top) { i, (id, n, ms) ->
+            val song = vm.song(id.toString())
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(34.dp))
+                Art(song?.artUri, accent, Modifier.size(46.dp))
+                Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(song?.title ?: "removed song", color = White, fontSize = 17.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song?.artist.orEmpty(), color = Dim, fontSize = 12.sp, maxLines = 1)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("$n plays", color = White, fontSize = 13.sp)
+                    Text(hrs(ms), color = Dim, fontSize = 11.sp)
+                }
             }
         }
     }

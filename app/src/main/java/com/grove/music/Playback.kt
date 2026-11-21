@@ -260,6 +260,20 @@ class PlaybackService : MediaLibraryService() {
             .build()
         val prefs = Prefs(this)
         startCrossfade(player, prefs)
+        // listening history for the stats tab
+        scope.launch {
+            var id: Long? = null; var start = 0L; var heard = 0L
+            while (true) {
+                kotlinx.coroutines.delay(5000)
+                val cur = player.currentMediaItem?.mediaId?.substringAfterLast("::")?.toLongOrNull()
+                if (cur != id) {
+                    id?.let { StatsLog.record(this@PlaybackService, start, it, heard) }
+                    id = cur; start = System.currentTimeMillis(); heard = 0
+                }
+                if (player.isPlaying) heard += 5000
+                flushStats = { id?.let { StatsLog.record(this@PlaybackService, start, it, heard) }; heard = 0 }
+            }
+        }
         watchMute(player, prefs)
         // remember the queue so Android can offer "resume" in the media controls later
         player.addListener(object : Player.Listener {
@@ -402,7 +416,10 @@ class PlaybackService : MediaLibraryService() {
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0) stopSelf()
     }
 
+    private var flushStats: (() -> Unit)? = null
+
     override fun onDestroy() {
+        flushStats?.invoke()
         scope.cancel()
         fader?.release(); fader = null
         muteReceiver?.let { runCatching { unregisterReceiver(it) } }
