@@ -359,10 +359,12 @@ fun EditTagsScreen(songId: Long, vm: MusicViewModel, accent: Color, close: () ->
 
 /** (Testing) YouTube Music website, ad-blocked and styled like Grove. */
 @Composable
-fun YtPage(accent: Color) {
+fun YtPage(accent: Color, active: Boolean) {
     YtWeb.accent = accent.toArgb()
     LaunchedEffect(accent) { YtWeb.restyle() }
-    BackHandler { if (!YtWeb.back()) Unit }
+    var canBack by remember { mutableStateOf(false) }
+    LaunchedEffect(active) { while (active) { canBack = YtWeb.canGoBack(); kotlinx.coroutines.delay(400) } }
+    BackHandler(active && canBack) { YtWeb.back() }
     Column(Modifier.fillMaxSize()) {
         Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp,
             modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
@@ -573,7 +575,7 @@ fun HomeScreen(
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
-                "youtube" -> YtPage(accent)
+                "youtube" -> YtPage(accent, pager.currentPage == p)
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))

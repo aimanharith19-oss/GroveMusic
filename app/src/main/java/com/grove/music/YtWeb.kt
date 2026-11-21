@@ -90,5 +90,6 @@ object YtWeb {
     }
 
     fun restyle() { view?.let { inject(it) } }
+    fun canGoBack() = view?.canGoBack() == true
     fun back(): Boolean = view?.takeIf { it.canGoBack() }?.let { it.goBack(); true } ?: false
 }
