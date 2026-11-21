@@ -9,7 +9,7 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "com.grove.music"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 35
         // every CI build gets a higher version so it installs as an update
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
@@ -34,6 +34,8 @@ android {
         }
     }
     compileOptions {
+        // newer Java APIs (java.nio.file, java.time) on Android 7 — needed by the tag editor
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -43,6 +45,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.4")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
