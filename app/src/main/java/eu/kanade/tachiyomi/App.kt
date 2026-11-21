@@ -147,6 +147,15 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     @SuppressLint("LaunchActivityFromNotification")
     override fun onCreate() {
         super<Application>.onCreate()
+        // GroveMedia ↔ books: backup & restore everything (library, history, sources & their settings, app settings)
+        com.grove.music.BookBridge.backup = { ctx, uri ->
+            eu.kanade.tachiyomi.data.backup.create.BackupCreateWorker.startNow(ctx, uri,
+                eu.kanade.tachiyomi.data.backup.create.BackupOptions(privateSettings = true))
+        }
+        com.grove.music.BookBridge.restore = { ctx, uri ->
+            eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker.start(
+                androidx.work.WorkManager.getInstance(ctx), uri, eu.kanade.tachiyomi.data.backup.restore.RestoreOptions())
+        }
         // SY -->
         try {
             FirebaseConfig.init(applicationContext)

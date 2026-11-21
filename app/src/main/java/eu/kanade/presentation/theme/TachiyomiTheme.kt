@@ -85,10 +85,25 @@ private fun getThemeColorScheme(
     } else {
         colorSchemes.getOrDefault(appTheme, TachiyomiColorScheme)
     }
-    return colorScheme.getColorScheme(
+    val base = colorScheme.getColorScheme(
         isDark = isDark,
         isAmoled = isAmoled,
         overrideDarkSurfaceContainers = appTheme != AppTheme.MONET,
+    )
+    // GroveMedia: books use the same accent colour and pure-black, accent-tinted surfaces as music & video
+    val accent = androidx.compose.ui.graphics.Color(com.grove.music.Prefs(context).accent)
+    val black = androidx.compose.ui.graphics.Color.Black
+    val white = androidx.compose.ui.graphics.Color.White
+    fun tint(f: Float) = androidx.compose.ui.graphics.lerp(black, accent, f)
+    return base.copy(
+        primary = accent, onPrimary = white, primaryContainer = tint(0.55f), onPrimaryContainer = white,
+        secondary = accent, onSecondary = white, secondaryContainer = tint(0.35f), onSecondaryContainer = white,
+        tertiary = accent, onTertiary = white, tertiaryContainer = tint(0.35f), onTertiaryContainer = white,
+        background = black, onBackground = white, surface = black, onSurface = white,
+        surfaceVariant = tint(0.12f), onSurfaceVariant = white.copy(alpha = 0.75f),
+        surfaceContainerLowest = black, surfaceContainerLow = tint(0.06f), surfaceContainer = tint(0.09f),
+        surfaceContainerHigh = tint(0.13f), surfaceContainerHighest = tint(0.17f), surfaceTint = accent,
+        inversePrimary = accent, outline = white.copy(alpha = 0.35f), outlineVariant = white.copy(alpha = 0.15f),
     )
 }
 

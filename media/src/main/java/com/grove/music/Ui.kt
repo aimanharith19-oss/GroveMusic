@@ -618,6 +618,71 @@ fun HomeScreen(
     }
 }
 
+/** "continue reading": last chapter of each book; tap to jump straight back into the reader */
+@Composable
+fun ContinueReading(accent: Color, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    var list by remember { mutableStateOf<List<BookRead>>(emptyList()) }
+    LaunchedEffect(Unit) { list = withContext(Dispatchers.IO) { Books.recent(ctx) } }
+    if (list.isEmpty()) return
+    Column(modifier) {
+        SectionLabel("continue reading", accent)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            itemsIndexed(list) { _, b ->
+                Column(Modifier.width(100.dp).tilt(onLongClick = { Books.openBook(ctx, b.mangaId) }) { Books.openReader(ctx, b) }) {
+                    Box(Modifier.width(100.dp).height(150.dp).background(lerp(accent, Color.Black, 0.4f))) {
+                        Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = White.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center))
+                        if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                    }
+                    Text(b.title, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    Text(b.chapter, color = Dim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+/** Back up / restore: books (library, history, sources & their settings, app settings) and music & video data. */
+@Composable
+fun BackupBox(accent: Color, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    fun toast(m: String) = android.widget.Toast.makeText(ctx, m, android.widget.Toast.LENGTH_LONG).show()
+    val stamp = remember { java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm", java.util.Locale.US).format(java.util.Date()) }
+    val bookOut = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
+        if (u != null) { BookBridge.backup?.invoke(ctx, u); toast("backing up books & sources… you'll get a notification when it's done") }
+    }
+    val bookIn = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) { BookBridge.restore?.invoke(ctx, u); toast("restoring books & sources… watch the notification") }
+    }
+    val mediaOut = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { u ->
+        if (u != null) runCatching { MediaBackup.write(ctx, u) }.onSuccess { toast("music & video data backed up") }.onFailure { toast("backup failed: ${it.message}") }
+    }
+    val mediaIn = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        if (u != null) runCatching { MediaBackup.read(ctx, u) }.onSuccess { toast("restored — reopen GroveMedia to see everything") }
+            .onFailure { toast("restore failed: ${it.message}") }
+    }
+    Column(modifier) {
+        SectionLabel("backup & restore", accent)
+        val items = listOf(
+            Triple("back up books", "library, history, sources & their settings", { bookOut.launch("grovemedia_books_$stamp.tachibk") }),
+            Triple("restore books", "from a GroveMedia or Grove Book backup (.tachibk)", { bookIn.launch(arrayOf("*/*")) }),
+            Triple("back up music & video", "playlists, likes, pins, stats, settings", { mediaOut.launch("grovemedia_music_video_$stamp.zip") }),
+            Triple("restore music & video", "from a GroveMedia music & video backup (.zip)", { mediaIn.launch(arrayOf("application/zip", "*/*")) }),
+        )
+        items.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                row.forEachIndexed { i, (t, sub, act) ->
+                    Column(Modifier.weight(1f).height(96.dp).background(if (i == 0) lerp(accent, Color.Black, 0.45f) else Color.White.copy(alpha = 0.07f))
+                        .tilt(act).padding(10.dp), verticalArrangement = Arrangement.Bottom) {
+                        Text(t, color = White, fontSize = 17.sp, fontWeight = FontWeight.Light)
+                        Text(sub, color = White.copy(alpha = 0.7f), fontSize = 11.sp, maxLines = 2, lineHeight = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Music: a row of section chips (songs, artists, albums, genres, playlists, no info) over the content. */
 @Composable
 fun MusicPage(accent: Color, content: @Composable (String) -> Unit) {
@@ -640,10 +705,7 @@ fun MusicPage(accent: Color, content: @Composable (String) -> Unit) {
 @Composable
 fun BooksPage(accent: Color) {
     val ctx = LocalContext.current
-    fun go(action: String?) = runCatching {
-        ctx.startActivity(android.content.Intent().setClassName(ctx.packageName, "eu.kanade.tachiyomi.ui.main.MainActivity")
-            .apply { if (action != null) setAction(action) }.addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
-    }
+    fun go(action: String?) = Books.open(ctx, action)
     val dark = lerp(accent, Color.Black, 0.45f)
     val tiles = listOf(
         Triple("library", Icons.AutoMirrored.Rounded.MenuBook, "eu.kanade.tachiyomi.SHOW_LIBRARY"),
@@ -676,10 +738,8 @@ fun BooksPage(accent: Color) {
                 }
             }
         }
-        item {
-            Text("moving from the separate Grove Book app? there: more → backup & restore → create backup; here: books → more → backup & restore → restore",
-                color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
-        }
+        item { ContinueReading(accent, Modifier.padding(top = 4.dp)) }
+        item { BackupBox(accent, Modifier.padding(top = 14.dp)) }
     }
 }
 
@@ -1176,6 +1236,36 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
                 }
             }
         }
+        // books
+        item {
+            var rs by remember { mutableStateOf<Books.ReadStats?>(null) }
+            LaunchedEffect(Unit) { rs = withContext(Dispatchers.IO) { Books.ReadStats(Books.history(ctx)) } }
+            rs?.takeIf { it.chapters > 0 }?.let { r ->
+                SectionLabel("books read", accent, Modifier.padding(top = 14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("today" to r.today, "this month" to r.month, "this year" to r.year, "all time" to r.total).forEachIndexed { i, (l, v) ->
+                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                Text("${r.chapters} chapters read", color = Dim, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                r.top.forEachIndexed { i, (b, ms, ch) ->
+                    Row(Modifier.fillMaxWidth().tilt { Books.openBook(ctx, b.mangaId) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
+                        Box(Modifier.width(34.dp).height(50.dp).background(lerp(accent, Color.Black, 0.4f))) {
+                            if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                        }
+                        Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                            Text(b.title, color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("$ch chapters", color = Dim, fontSize = 11.sp)
+                        }
+                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
         // videos
         item {
             val w = remember(st) { Stats(StatsLog.readWatch(ctx)) }
@@ -1406,6 +1496,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                 row("new videos", newest)
             }
         }
+        item { ContinueReading(accent, Modifier.padding(top = 14.dp)) }
         if (rediscover.size >= 5) item {
             Column(Modifier.padding(top = 18.dp).fillMaxWidth().background(Brush.horizontalGradient(listOf(accent, lerp(accent, Color.Black, 0.5f)))).padding(14.dp)) {
                 Text("rediscover?", color = White, fontSize = 28.sp, fontWeight = FontWeight.Light)
@@ -1691,6 +1782,7 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 } else vm.fixMissing(list)
             }
         }
+        BackupBox(accent, Modifier.padding(top = 12.dp))
         // ── artist info
         val sync = vm.artistSync.value
         val tick = vm.artistTick.intValue
