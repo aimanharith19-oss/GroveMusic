@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.geometry.Offset
@@ -356,6 +357,19 @@ fun EditTagsScreen(songId: Long, vm: MusicViewModel, accent: Color, close: () ->
     }
 }
 
+/** (Testing) YouTube Music website, ad-blocked and styled like Grove. */
+@Composable
+fun YtPage(accent: Color) {
+    YtWeb.accent = accent.toArgb()
+    LaunchedEffect(accent) { YtWeb.restyle() }
+    BackHandler { if (!YtWeb.back()) Unit }
+    Column(Modifier.fillMaxSize()) {
+        Text("TESTING · ads blocked · turn off in settings", color = Dim, fontSize = 11.sp, letterSpacing = 1.sp,
+            modifier = Modifier.padding(start = 20.dp, bottom = 4.dp))
+        androidx.compose.ui.viewinterop.AndroidView(factory = { YtWeb.get(it) }, modifier = Modifier.fillMaxSize())
+    }
+}
+
 /** Search across songs, artists, albums and playlists. */
 @Composable
 fun SearchScreen(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
@@ -528,7 +542,8 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "playlists")
+    val prefsL = remember { Prefs(vm.getApplication()) }
+    val pages = listOf("songs", "artists", "albums", "playlists") + if (prefsL.ytTab) listOf("youtube") else emptyList()
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -550,12 +565,15 @@ fun HomeScreen(
                     .padding(start = 12.dp, top = 4.dp))
         }
         PivotHeaders(pages, pos, accent) { scope.launch { pager.animateScrollToPage(it, animationSpec = tween(450, easing = WpEase)) } }
-        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1) { p ->
+        // the web tab handles its own swipes; leave it by tapping a header
+        HorizontalPager(pager, Modifier.weight(1f), beyondViewportPageCount = 1,
+            userScrollEnabled = pages.getOrNull(pager.currentPage) != "youtube") { p ->
             when (pages[p]) {
                 "songs" -> SongsPage(songs, accent, vm.loading.value, askPerms, onShuffle = {
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
+                "youtube" -> YtPage(accent)
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -1012,6 +1030,22 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 color = Dim, fontSize = 14.sp)
             Slider(cross, { cross = it }, valueRange = 0f..12f, steps = 11, onValueChangeFinished = { prefs.crossfade = cross.toInt() },
                 colors = SliderDefaults.colors(thumbColor = White, activeTrackColor = accent, inactiveTrackColor = White.copy(alpha = 0.2f)))
+        }
+        var muteP by remember { mutableStateOf(prefs.pauseOnMute) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("pause when muted", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("volume all the way down pauses; turning it up plays again", color = Dim, fontSize = 14.sp)
+            }
+            Switch(muteP, { muteP = it; prefs.pauseOnMute = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
+        var yt by remember { mutableStateOf(prefs.ytTab) }
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("youtube music tab (testing)", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                Text("YouTube Music website inside Grove, ads blocked · restart Grove to apply", color = Dim, fontSize = 14.sp)
+            }
+            Switch(yt, { yt = it; prefs.ytTab = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
         var carLyrics by remember { mutableStateOf(prefs.carLyrics) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {

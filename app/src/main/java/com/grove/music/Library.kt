@@ -222,6 +222,12 @@ class Prefs(ctx: Context) {
     var crossfade: Int
         get() = sp.getInt("crossfade", 0)
         set(v) = sp.edit().putInt("crossfade", v).apply()
+    var pauseOnMute: Boolean
+        get() = sp.getBoolean("pause_on_mute", true)
+        set(v) = sp.edit().putBoolean("pause_on_mute", v).apply()
+    var ytTab: Boolean
+        get() = sp.getBoolean("yt_tab", true)
+        set(v) = sp.edit().putBoolean("yt_tab", v).apply()
     var carLyrics: Boolean
         get() = sp.getBoolean("car_lyrics", true)
         set(v) = sp.edit().putBoolean("car_lyrics", v).apply()

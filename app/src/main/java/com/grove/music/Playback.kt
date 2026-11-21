@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -168,6 +169,23 @@ class PlaybackService : MediaLibraryService() {
 
     private fun mixes() = Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, Prefs(this).mixSalt)
 
+    // ── pause when the media volume is turned all the way down; resume when it comes back up ──
+    private var muteReceiver: android.content.BroadcastReceiver? = null
+    private fun watchMute(player: ExoPlayer, prefs: Prefs) {
+        val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        var pausedByMute = false
+        muteReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: android.content.Context, i: Intent) {
+                if (!prefs.pauseOnMute) return
+                val v = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                if (v == 0 && player.isPlaying) { pausedByMute = true; player.pause() }
+                else if (v > 0 && pausedByMute) { pausedByMute = false; player.play() }
+            }
+        }
+        val f = android.content.IntentFilter("android.media.VOLUME_CHANGED_ACTION")
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(muteReceiver, f, RECEIVER_NOT_EXPORTED) else registerReceiver(muteReceiver, f)
+    }
+
     // ── crossfade ───────────────────────────────────────────────────────────
     // Near the end of a song, a second (session-less) player takes over the outgoing song's tail and fades
     // it out while the main player moves on to the next song and fades in — so the two overlap.
@@ -241,6 +259,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         val prefs = Prefs(this)
         startCrossfade(player, prefs)
+        watchMute(player, prefs)
         // remember the queue so Android can offer "resume" in the media controls later
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -382,6 +401,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         scope.cancel()
         fader?.release(); fader = null
+        muteReceiver?.let { runCatching { unregisterReceiver(it) } }
         session?.run { player.release(); release() }
         session = null
         super.onDestroy()
