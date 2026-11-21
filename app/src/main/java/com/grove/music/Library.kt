@@ -30,6 +30,8 @@ data class Song(
     val displayName: String,
     val genre: String,
     val year: Int = 0,
+    /** when the file arrived on the phone (epoch seconds) */
+    val added: Long = 0,
 ) {
     val folder: String get() = path?.substringBeforeLast('/', "")?.ifEmpty { null } ?: "unknown folder"
     val artUri: Uri get() = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
@@ -67,7 +69,7 @@ object MusicRepository {
             MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID, MediaStore.Audio.Media.TRACK,
             MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.MIME_TYPE,
-            MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.YEAR, MediaStore.Audio.Media.DATE_ADDED,
         ) + (if (android.os.Build.VERSION.SDK_INT >= 30) arrayOf("genre") else emptyArray())
         val sel = "${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.MIME_TYPE} LIKE '%flac%'"
         val out = ArrayList<Song>()
@@ -91,6 +93,7 @@ object MusicRepository {
                     displayName = name,
                     genre = s("genre").clean("unknown genre"),
                     year = l(MediaStore.Audio.Media.YEAR).toInt().takeIf { it in 1900..2100 } ?: 0,
+                    added = l(MediaStore.Audio.Media.DATE_ADDED),
                 )
             }
         }
@@ -210,6 +213,14 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     val preferFlac = mutableStateOf(prefs.preferFlac)
 
+    // ── speed dial pins: "song:<id>", "album:<albumId>", "artist:<name>", "playlist:<id>" ──
+    val pins = mutableStateOf(prefs.pins)
+    fun isPinned(k: String) = k in pins.value
+    fun togglePin(k: String) {
+        val l = if (k in pins.value) pins.value - k else (listOf(k) + pins.value).take(12)
+        pins.value = l; prefs.pins = l
+    }
+
     fun setPreferFlac(on: Boolean) { preferFlac.value = on; prefs.preferFlac = on; apply() }
 
     fun setHidden(folder: String, hide: Boolean) {
@@ -236,6 +247,13 @@ class Prefs(ctx: Context) {
     fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
     fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
         sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
+    var pins: List<String>
+        get() = sp.getString("pins", "")!!.split('\n').filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("pins", v.joinToString("\n")).apply()
+    /** day number on which the user said "not now" to rediscover */
+    var rediscoverSkip: Int
+        get() = sp.getInt("rediscover_skip", 0)
+        set(v) = sp.edit().putInt("rediscover_skip", v).apply()
     var mixSalt: Int
         get() = sp.getInt("mix_salt", 0)
         set(v) = sp.edit().putInt("mix_salt", v).apply()

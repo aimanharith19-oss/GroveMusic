@@ -200,7 +200,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     vm.editTags = { id -> forward = true; stack = stack + Screen.EditTags(id) }
     BackHandler(addTarget != null) { addTarget = null }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = Color.Black, surface = Color.Black)) {
-        CompositionLocalProvider(LocalAddToPlaylist provides { addTarget = it }) {
+        CompositionLocalProvider(LocalAddToPlaylist provides { addTarget = it }, LocalVm provides vm) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AnimatedContent(
                 targetState = stack.last(),
@@ -470,6 +470,12 @@ fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onD
             modifier = Modifier.padding(bottom = 8.dp))
         val one = songs.singleOrNull()?.let { vm.song(it.toString()) }
         if (!naming && one != null) {
+            val pk = "song:${one.id}"
+            Row(Modifier.fillMaxWidth().tilt { vm.togglePin(pk); onDone() }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(46.dp).background(accent), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PushPin, null, tint = White) }
+                Text(if (vm.isPinned(pk)) "unpin from speed dial" else "pin to speed dial", color = White, fontSize = 21.sp,
+                    fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
+            }
             Row(Modifier.fillMaxWidth().tilt { onDone(); vm.editTags?.invoke(one.id) }.padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(46.dp).border(2.dp, White), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Edit, null, tint = White) }
@@ -525,7 +531,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
+    val pages = listOf("home", "songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -557,6 +563,7 @@ fun HomeScreen(
                 "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
                 "no info" -> MissingPage(vm, accent)
                 "stats" -> StatsPage(vm, accent)
+                "home" -> HubPage(vm, conn, accent, open)
                 "folders" -> FoldersPage(vm, accent, pager.currentPage == p, { l, i -> conn.playSongs(l, i); open(Screen.Playing) }) { n, l -> open(Screen.Detail(n, "folder · ${l.size} songs", l)) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
@@ -666,6 +673,8 @@ fun JumpList(accent: Color, content: @Composable (state: LazyListState, headers:
 }
 
 private fun letterOf(s: String): Char = s.firstOrNull()?.lowercaseChar()?.takeIf { it.isLetter() } ?: '#'
+
+val LocalVm = staticCompositionLocalOf<MusicViewModel?> { null }
 
 /** Tapping a letter tile opens the Windows Phone jump grid. */
 val LocalJump = staticCompositionLocalOf<(() -> Unit)?> { null }
@@ -1109,6 +1118,202 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
     }
 }
 
+private fun dayNo(): Int = java.util.Calendar.getInstance().run { get(java.util.Calendar.YEAR) * 1000 + get(java.util.Calendar.DAY_OF_YEAR) }
+
+/** A Windows Phone live tile: shows its front, then flips (top to bottom) to its back now and then, at random. */
+@Composable
+fun FlipTile(modifier: Modifier, color: Color, onClick: () -> Unit, front: @Composable BoxScope.() -> Unit, back: @Composable BoxScope.() -> Unit) {
+    var flipped by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay((1500..6000).random().toLong())
+        while (true) { flipped = !flipped; kotlinx.coroutines.delay((4000..9000).random().toLong()) }
+    }
+    val r by animateFloatAsState(if (flipped) 180f else 0f, tween(750, easing = WpEase), label = "flip")
+    Box(modifier.tilt(onClick).graphicsLayer {
+        rotationX = if (r < 90f) r else r - 180f; cameraDistance = 14f * density
+    }.background(color).clipToBounds()) { if (r < 90f) front() else back() }
+}
+
+@Composable
+private fun BoxScope.TileText(big: String, small: String) {
+    Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+        Text(big, color = White, fontSize = 15.sp, lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(small, color = White.copy(alpha = 0.8f), fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** First tab: speed dial, continue listening, rediscover, new arrivals, playlists & mixes, genres. */
+@Composable
+fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    val ctx = LocalContext.current
+    val songs = vm.songs.value
+    val byId = remember(songs) { songs.associateBy { it.id } }
+    val dark = lerp(accent, Color.Black, 0.45f)
+    val tick = vm.artistTick.intValue
+    var plays by remember { mutableStateOf<List<Play>>(emptyList()) }
+    LaunchedEffect(songs) { plays = withContext(Dispatchers.IO) { StatsLog.read(ctx) } }
+    val play: (List<Song>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) { conn.playSongs(l, i); open(Screen.Playing) } }
+    val intro = rememberIntro()
+
+    // speed dial: your pins first, then your most played singers / songs
+    val dial = remember(vm.pins.value, plays, songs) {
+        val auto = plays.groupBy { it.id }.entries.sortedByDescending { e -> e.value.sumOf { it.ms } }.mapNotNull { byId[it.key] }
+        val autoKeys = auto.map { "artist:" + ArtistRepository.primary(it.artist) }.distinct().take(4) + auto.take(8).map { "song:${it.id}" }
+        val fill = if (autoKeys.isEmpty()) songs.shuffled(kotlin.random.Random(dayNo())).take(9).map { "song:${it.id}" } else autoKeys
+        (vm.pins.value + fill).distinct().take(9)
+    }
+    val recent = remember(plays, songs) { plays.sortedByDescending { it.ts }.mapNotNull { byId[it.id] }.distinctBy { it.id }.take(15) }
+    val rediscover = remember(plays, songs) {
+        val last = plays.groupBy { it.id }.mapValues { e -> e.value.maxOf { it.ts } }
+        val cutoff = System.currentTimeMillis() - 30L * 86_400_000
+        songs.filter { (last[it.id] ?: 0L) < cutoff }.shuffled(kotlin.random.Random(dayNo())).take(30)
+    }
+    val fresh = remember(songs) {
+        val cutoff = System.currentTimeMillis() / 1000 - 30L * 86_400
+        songs.filter { it.added >= cutoff }.sortedByDescending { it.added }.take(60).shuffled(kotlin.random.Random(dayNo())).take(30)
+    }
+    var askRediscover by remember { mutableStateOf(Prefs(ctx).rediscoverSkip != dayNo()) }
+
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            SectionLabel("speed dial", accent)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val gap = 8.dp
+                val u = (maxWidth - gap * 2) / 3
+                Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                    dial.chunked(3).forEachIndexed { r, row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                            row.forEachIndexed { c, key ->
+                                val (type, v) = key.substringBefore(':') to key.substringAfter(':')
+                                val m = Modifier.feather(r * 3 + c, intro).size(u)
+                                val pinned = key in vm.pins.value
+                                when (type) {
+                                    "song" -> byId[v.toLongOrNull()]?.let { s ->
+                                        FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) },
+                                            { Art(s.artUri, accent, Modifier.matchParentSize()) },
+                                            { TileText(s.title, s.artist + if (s.year > 0) " · ${s.year}" else "") })
+                                    }
+                                    "album" -> songs.filter { it.albumId.toString() == v }.takeIf { it.isNotEmpty() }?.let { l ->
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Detail(l[0].album, l[0].artist, l)) },
+                                            { Art(l[0].artUri, accent, Modifier.matchParentSize()) },
+                                            { TileText(l[0].album.lowercase(), "${l[0].artist} · ${l.size} songs") })
+                                    }
+                                    "artist" -> {
+                                        val info = remember(v, tick) { ArtistRepository.cached(ctx, v) }
+                                        val l = songs.filter { ArtistRepository.split(it.artist).any { a -> ArtistRepository.key(a) == ArtistRepository.key(v) } }
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Artist(v)) }, {
+                                            if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                            else Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize())
+                                            Text(v.lowercase(), color = White, fontSize = 13.sp, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart)
+                                                .background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }, {
+                                            TileText(v.lowercase(), listOfNotNull("${l.size} songs",
+                                                info?.fans?.takeIf { it > 0 }?.let { "${it / 1000}k fans" },
+                                                info?.releases?.size?.takeIf { it > 0 }?.let { "$it releases" }).joinToString(" · "))
+                                        })
+                                    }
+                                    "playlist" -> vm.playlists.get(v)?.let { p ->
+                                        val l = p.ids.mapNotNull { byId[it] }
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.PlaylistView(p.id)) },
+                                            { Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize()) },
+                                            { TileText(p.name.lowercase(), "${l.size} songs") })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Text("long-press a song or tap the pin on a singer's page to pin it here", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+        }
+        if (recent.isNotEmpty()) item {
+            SectionLabel("continue listening", accent, Modifier.padding(top = 14.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                itemsIndexed(recent) { i, s ->
+                    Column(Modifier.width(120.dp).tilt { play(recent, i) }) {
+                        Art(s.artUri, accent, Modifier.size(120.dp))
+                        Text(s.title, color = White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        Text(s.artist, color = Dim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        if (askRediscover && rediscover.size >= 5) item {
+            Column(Modifier.padding(top = 18.dp).fillMaxWidth().background(Brush.horizontalGradient(listOf(accent, lerp(accent, Color.Black, 0.5f)))).padding(14.dp)) {
+                Text("rediscover?", color = White, fontSize = 28.sp, fontWeight = FontWeight.Light)
+                Text("${rediscover.size} songs you haven't played in a month or more — want to hear them again?", color = White.copy(alpha = 0.85f), fontSize = 14.sp)
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("play them", color = Color.Black, fontSize = 16.sp, modifier = Modifier.background(White).tilt { play(rediscover, 0) }
+                        .padding(horizontal = 16.dp, vertical = 8.dp))
+                    Text("see the list", color = White, fontSize = 16.sp, modifier = Modifier.border(2.dp, White)
+                        .tilt { open(Screen.Detail("rediscover", "songs you haven't played lately", rediscover)) }.padding(horizontal = 14.dp, vertical = 6.dp))
+                    Text("not now", color = White.copy(alpha = 0.8f), fontSize = 16.sp,
+                        modifier = Modifier.tilt { Prefs(ctx).rediscoverSkip = dayNo(); askRediscover = false }.padding(vertical = 8.dp))
+                }
+            }
+        }
+        if (fresh.isNotEmpty()) item {
+            SectionLabel("new arrivals · daily", accent, Modifier.padding(top = 14.dp))
+            Row(Modifier.fillMaxWidth().background(dark).tilt { open(Screen.Detail("new arrivals", "songs added in the last 30 days · new mix daily", fresh)) }
+                .padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row { fresh.distinctBy { it.albumId }.take(3).forEach { Art(it.artUri, accent, Modifier.size(56.dp)) } }
+                Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text("new for you", color = White, fontSize = 20.sp, fontWeight = FontWeight.Light)
+                    Text("${fresh.size} songs that just arrived on your phone", color = White.copy(alpha = 0.75f), fontSize = 12.sp)
+                }
+                Icon(Icons.Rounded.PlayArrow, "play", tint = White, modifier = Modifier.size(40.dp).border(2.dp, White, CircleShape).tilt { play(fresh, 0) }.padding(6.dp))
+            }
+        }
+        item {
+            SectionLabel("playlists & mixes", accent, Modifier.padding(top = 14.dp))
+            val mixes = remember(songs, vm.mixSalt.intValue, vm.metaTick.intValue) {
+                Radio.dailyMixes(songs, vm.playlists.liked.ids, vm.mixSalt.intValue, { Meta.genreOf(ctx, it) })
+            }
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                itemsIndexed(vm.playlists.lists.value) { _, p ->
+                    val l = p.ids.mapNotNull { byId[it] }
+                    Column(Modifier.width(120.dp).tilt { open(Screen.PlaylistView(p.id)) }) {
+                        Box(Modifier.size(120.dp).background(if (p.id == PlaylistStore.LIKED) accent else dark), contentAlignment = Alignment.Center) {
+                            if (p.id == PlaylistStore.LIKED) Icon(Icons.Rounded.Favorite, null, tint = White, modifier = Modifier.size(40.dp))
+                            else Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize())
+                        }
+                        Text(p.name.lowercase(), color = White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        Text("${l.size} songs", color = Dim, fontSize = 11.sp)
+                    }
+                }
+                itemsIndexed(mixes) { _, (name, l) ->
+                    Column(Modifier.width(120.dp).tilt { open(Screen.Detail(name, "radio mix · ${l.size} songs", l)) }) {
+                        Box(Modifier.size(120.dp)) {
+                            Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize())
+                            Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.85f)))))
+                            Icon(Icons.Rounded.Radio, null, tint = White, modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).size(22.dp))
+                        }
+                        Text(name, color = White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        Text("${l.size} songs", color = Dim, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+        item {
+            val genres = remember(songs, vm.metaTick.intValue) {
+                songs.groupBy { Meta.genreOf(ctx, it) }.filterKeys { it != "other" }.entries.sortedByDescending { it.value.size }.take(12)
+            }
+            if (genres.isNotEmpty()) {
+                SectionLabel("genres", accent, Modifier.padding(top = 14.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(genres) { i, (g, l) ->
+                        Box(Modifier.size(110.dp, 70.dp).background(if (i % 2 == 0) accent else dark)
+                            .tilt { open(Screen.Detail(g, "genre · ${l.size} songs", l)) }) {
+                            Text(g, color = White, fontSize = 17.sp, fontWeight = FontWeight.Light, maxLines = 2,
+                                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** Browse your music by folder: tap into folders, play everything inside, back goes up a level. */
 @Composable
 fun FoldersPage(vm: MusicViewModel, accent: Color, active: Boolean, onPlay: (List<Song>, Int) -> Unit, onPlayAll: (String, List<Song>) -> Unit) {
@@ -1420,8 +1625,16 @@ fun DetailScreen(d0: Screen.Detail, conn: PlayerConnection, accent: Color, open:
             overflow = TextOverflow.Clip, modifier = Modifier.padding(start = 16.dp).wrapContentWidth(Alignment.Start, unbounded = true))
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             item {
-                Text("play all", color = accent, fontSize = 20.sp,
-                    modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { conn.playSongs(d.songs, 0); open(Screen.Playing) }.padding(vertical = 10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("play all", color = accent, fontSize = 20.sp,
+                        modifier = Modifier.feather(0, intro).weight(1f).tilt { conn.playSongs(d.songs, 0); open(Screen.Playing) }.padding(vertical = 10.dp))
+                    val vmL = LocalVm.current
+                    if (isAlbum && vmL != null) {
+                        val k = "album:${d0.songs[0].albumId}"
+                        Text(if (vmL.isPinned(k)) "unpin" else "pin to speed dial", color = White, fontSize = 15.sp,
+                            modifier = Modifier.border(1.5.dp, White).tilt { vmL.togglePin(k) }.padding(horizontal = 10.dp, vertical = 5.dp))
+                    }
+                }
             }
             itemsIndexed(d.songs, key = { _, s -> s.id }) { i, s ->
                 Box(Modifier.feather(i + 1, intro)) {
@@ -1907,6 +2120,9 @@ fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accen
                 }
                 item {
                     Row(Modifier.feather(2, intro).padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val apk = "artist:$name"
+                        Icon(Icons.Rounded.PushPin, "pin", tint = if (vm.isPinned(apk)) accent else White,
+                            modifier = Modifier.size(42.dp).border(2.dp, White).tilt { vm.togglePin(apk) }.padding(9.dp))
                         Text("play", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt { if (songs.isNotEmpty()) play(0) }
                             .padding(horizontal = 22.dp, vertical = 10.dp))
                         Text("shuffle", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White)
