@@ -536,7 +536,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists")
+    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -567,6 +567,7 @@ fun HomeScreen(
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
                 "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
                 "countries" -> GroupTiles(vm, accent, "country", { Meta.countryOf(vm.getApplication(), it) ?: "unknown" }) { n, l -> open(Screen.Detail(n, "country · ${l.size} songs", l)) }
+                "no info" -> MissingPage(vm, accent)
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -804,6 +805,11 @@ fun ArtistsPage(songs: List<Song>, vm: MusicViewModel, accent: Color, onOpen: (S
 @Composable
 fun PlaylistsPage(vm: MusicViewModel, accent: Color, onMix: (String, List<Song>) -> Unit, onOpen: (String) -> Unit) {
     val store = vm.playlists
+        val ctxM = LocalContext.current
+        val mixes = remember(vm.songs.value, store.liked.ids, vm.mixSalt.intValue, vm.metaTick.intValue) {
+            Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue,
+                { Meta.genreOf(ctxM, it) }, { Meta.countryOf(ctxM, it) })
+        }
     val intro = rememberIntro()
     var naming by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -821,11 +827,6 @@ fun PlaylistsPage(vm: MusicViewModel, accent: Color, onMix: (String, List<Song>)
                 }
             } else Text("+ new playlist", color = accent, fontSize = 20.sp,
                 modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { naming = true }.padding(vertical = 8.dp))
-        }
-        val ctxM = LocalContext.current
-        val mixes = remember(vm.songs.value, store.liked.ids, vm.mixSalt.intValue, vm.metaTick.intValue) {
-            Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue,
-                { Meta.genreOf(ctxM, it) }, { Meta.countryOf(ctxM, it) })
         }
         if (mixes.isNotEmpty()) {
             item {
@@ -1005,6 +1006,49 @@ fun GroupTiles(vm: MusicViewModel, accent: Color, what: String, keyOf: (Song) ->
     }
 }
 
+/** Last tab: songs with no cover, artist or album — tap one to edit it, or fix them all online. */
+@Composable
+fun MissingPage(vm: MusicViewModel, accent: Color) {
+    var list by remember { mutableStateOf<List<Song>?>(null) }
+    LaunchedEffect(vm.songs.value) { list = vm.findMissing() }
+    val ctx = LocalContext.current
+    val fix = vm.fixJob.value
+    val writeAll = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        if (r.resultCode == android.app.Activity.RESULT_OK) vm.fixMissing(vm.missingCache)
+    }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        val l = list
+        item {
+            Text(when { l == null -> "checking your songs…"; l.isEmpty() -> "every song has its title, artist, album and cover"
+                else -> "${l.size} songs missing a cover, artist or album" }, color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            if (!l.isNullOrEmpty()) Text(fix?.let { "fixing ${it.first + 1} of ${it.second}…" } ?: "fix all online", color = White, fontSize = 18.sp,
+                modifier = Modifier.padding(bottom = 10.dp).background(accent).tilt {
+                    if (fix != null) return@tilt
+                    vm.missingCache = l
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        val pi = android.provider.MediaStore.createWriteRequest(ctx.contentResolver, l.map { it.uri })
+                        writeAll.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+                    } else vm.fixMissing(l)
+                }.padding(horizontal = 20.dp, vertical = 9.dp))
+            vm.fixResult.value?.let { Text(it, color = White, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+        }
+        if (l != null) itemsIndexed(l, key = { _, s -> s.id }) { _, s ->
+            val missing = buildList {
+                if (s.artist == "unknown artist") add("artist"); if (s.album == "unknown album") add("album")
+            }
+            Row(Modifier.fillMaxWidth().tilt { vm.editTags?.invoke(s.id) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Art(s.artUri, accent, Modifier.size(50.dp))
+                Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text(s.title, color = White, fontSize = 19.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("no " + (missing.ifEmpty { listOf("cover") } + if (missing.isNotEmpty()) emptyList() else emptyList()).joinToString(", ") +
+                        " · " + s.displayName, color = Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Icon(Icons.Rounded.Edit, "edit", tint = White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
 @Composable
 fun AlbumsPage(songs: List<Song>, accent: Color, onOpen: (List<Song>) -> Unit) {
     val albums = remember(songs) { songs.groupBy { it.albumId }.values.sortedBy { it[0].album.lowercase() } }
@@ -1083,6 +1127,27 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             }
             Switch(carLyrics, { carLyrics = it; prefs.carLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
+        // ── fix songs with missing info
+        val fix = vm.fixJob.value
+        val writeAll = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+            if (r.resultCode == android.app.Activity.RESULT_OK) vm.fixMissing(vm.missingCache)
+        }
+        val ctxF = LocalContext.current
+        val scopeF = rememberCoroutineScope()
+        SettingItem("fix songs with missing info",
+            fix?.let { "fixing ${it.first} of ${it.second}…" }
+                ?: vm.fixResult.value ?: "find title, artist, album and cover online for songs without them") {
+            if (fix != null) return@SettingItem
+            scopeF.launch {
+                val list = vm.findMissing()
+                if (list.isEmpty()) { android.widget.Toast.makeText(ctxF, "every song has its info and cover", android.widget.Toast.LENGTH_SHORT).show(); return@launch }
+                vm.missingCache = list
+                if (Build.VERSION.SDK_INT >= 30) {
+                    val pi = android.provider.MediaStore.createWriteRequest(ctxF.contentResolver, list.map { it.uri })
+                    writeAll.launch(androidx.activity.result.IntentSenderRequest.Builder(pi.intentSender).build())
+                } else vm.fixMissing(list)
+            }
         }
         // ── artist info
         val sync = vm.artistSync.value

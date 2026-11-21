@@ -133,6 +133,51 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         syncArtists()
     }
 
+    // ── fix songs with missing info (no cover / unknown artist or album) ──
+    val fixJob = mutableStateOf<Pair<Int, Int>?>(null)
+    val fixResult = mutableStateOf<String?>(null)
+    var missingCache: List<Song> = emptyList()
+
+    suspend fun findMissing(): List<Song> = withContext(Dispatchers.IO) {
+        val r = getApplication<Application>().contentResolver
+        songs.value.filter { s ->
+            val noArt = runCatching { r.openFileDescriptor(s.artUri, "r")?.use { false } ?: true }.getOrDefault(true)
+            noArt || s.artist == "unknown artist" || s.album == "unknown album"
+        }
+    }
+
+    fun fixMissing(list: List<Song>) {
+        if (fixJob.value != null || list.isEmpty()) return
+        viewModelScope.launch {
+            var fixed = 0
+            list.forEachIndexed { i, s ->
+                fixJob.value = i to list.size
+                val base = if (s.title.isBlank()) s.displayName.substringBeforeLast('.') else s.title
+                val q = if (s.artist == "unknown artist") base else "$base ${ArtistRepository.primary(s.artist)}"
+                val match = runCatching { TagEditor.search(q) }.getOrDefault(emptyList()).firstOrNull { m ->
+                    val t = ArtistRepository.norm(m.tags.title); val b = ArtistRepository.norm(base)
+                    (t == b || b.contains(t) || t.contains(b)) &&
+                        (s.artist == "unknown artist" || ArtistRepository.norm(m.tags.artist).let { a ->
+                            val sa = ArtistRepository.norm(ArtistRepository.primary(s.artist)); a == sa || a.contains(sa) || sa.contains(a) })
+                }
+                if (match != null) {
+                    val cur = TagEditor.current(s)
+                    val tags = cur.copy(
+                        title = cur.title.ifBlank { match.tags.title },
+                        artist = if (s.artist == "unknown artist") match.tags.artist else cur.artist,
+                        album = if (s.album == "unknown album") match.tags.album else cur.album,
+                        albumArtist = match.tags.albumArtist, track = cur.track.ifBlank { match.tags.track },
+                        year = match.tags.year, genre = if (s.genre == "unknown genre") match.tags.genre else cur.genre)
+                    val cover = match.coverUrl?.let { TagEditor.download(it) }
+                    if (TagEditor.write(getApplication(), s, tags, cover).isSuccess) fixed++
+                }
+            }
+            fixJob.value = null
+            fixResult.value = "fixed $fixed of ${list.size} songs" + if (fixed < list.size) " · the rest weren't found online" else ""
+            load()
+        }
+    }
+
     /** genre/country lookups */
     val metaSync = mutableStateOf<Pair<Int, Int>?>(null)
     val metaTick = androidx.compose.runtime.mutableIntStateOf(0)
