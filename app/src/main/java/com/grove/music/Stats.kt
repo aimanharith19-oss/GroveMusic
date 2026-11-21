@@ -9,6 +9,18 @@ data class Play(val ts: Long, val id: Long, val ms: Long)
 /** Listening history: one line per listen (start time, song id, milliseconds heard) in a small file. */
 object StatsLog {
     private fun file(ctx: Context) = File(ctx.filesDir, "plays.log")
+    private fun wfile(ctx: Context) = File(ctx.filesDir, "watch.log")
+
+    /** video watching history (same format) */
+    @Synchronized fun recordWatch(ctx: Context, ts: Long, id: Long, ms: Long) {
+        if (ms < 5000) return
+        runCatching { wfile(ctx).appendText("$ts,$id,$ms\n") }
+    }
+    fun readWatch(ctx: Context): List<Play> = runCatching {
+        wfile(ctx).takeIf { it.exists() }?.readLines()?.mapNotNull { l ->
+            val p = l.split(','); if (p.size < 3) null else Play(p[0].toLong(), p[1].toLong(), p[2].toLong())
+        }
+    }.getOrNull() ?: emptyList()
 
     @Synchronized fun record(ctx: Context, ts: Long, id: Long, ms: Long) {
         if (ms < 5000) return

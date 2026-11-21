@@ -256,6 +256,10 @@ class Prefs(ctx: Context) {
     var tmdbKey: String
         get() = sp.getString("tmdb_key", "")!!
         set(v) = sp.edit().putString("tmdb_key", v).apply()
+    /** speed dial: fill empty spots with most-played songs (false = only your pins) */
+    var dialAuto: Boolean
+        get() = sp.getBoolean("dial_auto", true)
+        set(v) = sp.edit().putBoolean("dial_auto", v).apply()
     var pins: List<String>
         get() = sp.getString("pins", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("pins", v.joinToString("\n")).apply()

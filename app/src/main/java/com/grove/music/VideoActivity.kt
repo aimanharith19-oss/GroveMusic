@@ -88,8 +88,12 @@ class VideoActivity : ComponentActivity() {
 
     private val title = mutableStateOf("")
 
+    private var watched = 0L
+    private var watchStart = System.currentTimeMillis()
+
     private fun savePos() {
         if (videoId == 0L || !::player.isInitialized) return
+        StatsLog.recordWatch(this, watchStart, videoId, watched); watched = 0; watchStart = System.currentTimeMillis()
         val t = player.time; val len = player.length
         getSharedPreferences("video_pos", MODE_PRIVATE).edit().apply {
             if (len > 0 && t > len - 30_000) remove(videoId.toString()) else putLong(videoId.toString(), t)
@@ -143,7 +147,7 @@ class VideoActivity : ComponentActivity() {
         var drag by remember { mutableStateOf<Float?>(null) }
         var fill by remember { mutableStateOf(false) }
         val pip by inPip
-        LaunchedEffect(Unit) { while (true) { pos = player.time; len = player.length; playing = player.isPlaying; delay(250) } }
+        LaunchedEffect(Unit) { while (true) { pos = player.time; len = player.length; playing = player.isPlaying; if (playing) watched += 250; delay(250) } }
         LaunchedEffect(show, playing) { if (show && playing) { delay(3500); show = false } }
         Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
             detectTapGestures(onTap = { show = !show }, onDoubleTap = { o ->

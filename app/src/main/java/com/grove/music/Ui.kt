@@ -1093,6 +1093,32 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
                 }
             }
         }
+        // videos
+        item {
+            val w = remember(st) { Stats(StatsLog.readWatch(ctx)) }
+            if (w.all.isNotEmpty()) {
+                SectionLabel("videos watched", accent, Modifier.padding(top = 14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("today" to w.todayMs, "this month" to w.monthMs, "this year" to w.yearMs, "all time" to w.totalMs).forEachIndexed { i, (l, v) ->
+                        Column(Modifier.weight(1f).background(if (i == 3) accent else lerp(accent, Color.Black, 0.55f)).padding(8.dp)) {
+                            Text(hrs(v), color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                            Text(l, color = White.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1)
+                        }
+                    }
+                }
+                val vids = vm.videos.value.associateBy { it.id }
+                w.top("all", 5).forEachIndexed { i, (id, _, ms) ->
+                    val v = vids[id]
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${i + 1}", color = if (i < 3) accent else Dim, fontSize = 20.sp, fontWeight = FontWeight.Light, modifier = Modifier.width(30.dp))
+                        if (v != null) VideoThumb(v, Modifier.width(80.dp).height(45.dp))
+                        Text(v?.let { it.parsed.title + if (it.parsed.isEpisode) " · S${it.parsed.season}E${it.parsed.episode}" else "" } ?: "removed video",
+                            color = White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp).weight(1f))
+                        Text(hrs(ms), color = Dim, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
         // top 10 by period
         item {
             Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1130,14 +1156,14 @@ private fun dayNo(): Int = java.util.Calendar.getInstance().run { get(java.util.
 
 /** A Windows Phone live tile: shows its front, then flips (top to bottom) to its back now and then, at random. */
 @Composable
-fun FlipTile(modifier: Modifier, color: Color, onClick: () -> Unit, front: @Composable BoxScope.() -> Unit, back: @Composable BoxScope.() -> Unit) {
+fun FlipTile(modifier: Modifier, color: Color, onClick: () -> Unit, onLong: (() -> Unit)? = null, front: @Composable BoxScope.() -> Unit, back: @Composable BoxScope.() -> Unit) {
     var flipped by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay((1500..6000).random().toLong())
         while (true) { flipped = !flipped; kotlinx.coroutines.delay((4000..9000).random().toLong()) }
     }
     val r by animateFloatAsState(if (flipped) 180f else 0f, tween(750, easing = WpEase), label = "flip")
-    Box(modifier.tilt(onClick).graphicsLayer {
+    Box(modifier.tilt(onLong, onClick).graphicsLayer {
         rotationX = if (r < 90f) r else r - 180f; cameraDistance = 14f * density
     }.background(color).clipToBounds()) { if (r < 90f) front() else back() }
 }
@@ -1157,6 +1183,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
     val songs = vm.songs.value
     val byId = remember(songs) { songs.associateBy { it.id } }
     val dark = lerp(accent, Color.Black, 0.45f)
+    LaunchedEffect(Unit) { if (vm.videos.value.isEmpty()) vm.loadVideos() }
     val tick = vm.artistTick.intValue
     var plays by remember { mutableStateOf<List<Play>>(emptyList()) }
     LaunchedEffect(songs) { plays = withContext(Dispatchers.IO) { StatsLog.read(ctx) } }
@@ -1164,11 +1191,13 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
     val intro = rememberIntro()
 
     // speed dial: your pins first, then your most played singers / songs
-    val dial = remember(vm.pins.value, plays, songs) {
-        val auto = plays.groupBy { it.id }.entries.sortedByDescending { e -> e.value.sumOf { it.ms } }.mapNotNull { byId[it.key] }
-        val autoKeys = auto.map { "artist:" + ArtistRepository.primary(it.artist) }.distinct().take(4) + auto.take(8).map { "song:${it.id}" }
-        val fill = if (autoKeys.isEmpty()) songs.shuffled(kotlin.random.Random(dayNo())).take(9).map { "song:${it.id}" } else autoKeys
-        (vm.pins.value + fill).distinct().take(9)
+    var dialAuto by remember { mutableStateOf(Prefs(ctx).dialAuto) }
+    // speed dial is songs only: your pins first, then (if auto) your most played songs
+    val dial = remember(vm.pins.value, plays, songs, dialAuto) {
+        val pinned = vm.pins.value.filter { it.startsWith("song:") }
+        val auto = plays.groupBy { it.id }.entries.sortedByDescending { e -> e.value.sumOf { it.ms } }.mapNotNull { byId[it.key] }.map { "song:${it.id}" }
+        val fill = if (!dialAuto) emptyList() else auto.ifEmpty { songs.shuffled(kotlin.random.Random(dayNo())).take(9).map { "song:${it.id}" } }
+        (pinned + fill).distinct().take(9)
     }
     val recent = remember(plays, songs) { plays.sortedByDescending { it.ts }.mapNotNull { byId[it.id] }.distinctBy { it.id }.take(15) }
     val rediscover = remember(plays, songs) {
@@ -1184,7 +1213,14 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
 
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item {
-            SectionLabel("speed dial", accent)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("speed dial", accent, Modifier.weight(1f))
+                Text(if (dialAuto) "auto + pins" else "pins only", color = White, fontSize = 13.sp,
+                    modifier = Modifier.background(if (dialAuto) Color.White.copy(alpha = 0.1f) else accent)
+                        .tilt { dialAuto = !dialAuto; Prefs(ctx).dialAuto = dialAuto }.padding(horizontal = 10.dp, vertical = 5.dp))
+            }
+            if (dial.isEmpty()) Text("nothing pinned yet — long-press any song and choose \"pin to speed dial\"", color = Dim, fontSize = 14.sp,
+                modifier = Modifier.padding(vertical = 10.dp))
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val gap = 8.dp
                 val u = (maxWidth - gap * 2) / 3
@@ -1197,19 +1233,19 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                                 val pinned = key in vm.pins.value
                                 when (type) {
                                     "song" -> byId[v.toLongOrNull()]?.let { s ->
-                                        FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) },
+                                        FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) }, { vm.togglePin(key) },
                                             { Art(s.artUri, accent, Modifier.matchParentSize()) },
                                             { TileText(s.title, s.artist + if (s.year > 0) " · ${s.year}" else "") })
                                     }
                                     "album" -> songs.filter { it.albumId.toString() == v }.takeIf { it.isNotEmpty() }?.let { l ->
-                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Detail(l[0].album, l[0].artist, l)) },
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Detail(l[0].album, l[0].artist, l)) }, null,
                                             { Art(l[0].artUri, accent, Modifier.matchParentSize()) },
                                             { TileText(l[0].album.lowercase(), "${l[0].artist} · ${l.size} songs") })
                                     }
                                     "artist" -> {
                                         val info = remember(v, tick) { ArtistRepository.cached(ctx, v) }
                                         val l = songs.filter { ArtistRepository.split(it.artist).any { a -> ArtistRepository.key(a) == ArtistRepository.key(v) } }
-                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Artist(v)) }, {
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.Artist(v)) }, null, {
                                             if (info?.image != null) AsyncImage(info.image, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
                                             else Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize())
                                             Text(v.lowercase(), color = White, fontSize = 13.sp, maxLines = 1, modifier = Modifier.align(Alignment.BottomStart)
@@ -1222,7 +1258,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                                     }
                                     "playlist" -> vm.playlists.get(v)?.let { p ->
                                         val l = p.ids.mapNotNull { byId[it] }
-                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.PlaylistView(p.id)) },
+                                        FlipTile(m, if (pinned) accent else dark, { open(Screen.PlaylistView(p.id)) }, null,
                                             { Art(l.firstOrNull()?.artUri, accent, Modifier.matchParentSize()) },
                                             { TileText(p.name.lowercase(), "${l.size} songs") })
                                     }
@@ -1232,7 +1268,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                     }
                 }
             }
-            Text("long-press a song or tap the pin on a singer's page to pin it here", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+            Text("long-press a tile to pin it (accent = pinned, stays put) or unpin it", color = Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
         }
         if (recent.isNotEmpty()) item {
             SectionLabel("continue listening", accent, Modifier.padding(top = 14.dp))
@@ -1246,17 +1282,50 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                 }
             }
         }
+        // videos: continue watching + recently added
+        val vids = vm.videos.value
+        if (vids.isNotEmpty()) item {
+            val pos = remember(vids) { ctx.getSharedPreferences("video_pos", 0) }
+            val watching = remember(vids) { vids.filter { pos.getLong(it.id.toString(), 0) > 5000 } }
+            val newest = remember(vids) { vids.sortedByDescending { it.added }.take(12) }
+            val row: @Composable (String, List<Video>) -> Unit = { label, l ->
+                SectionLabel(label, accent, Modifier.padding(top = 14.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(l) { _, v ->
+                        Column(Modifier.width(170.dp).tilt {
+                            if (v.parsed.isEpisode) open(Screen.Show(v.parsed.title)) else open(Screen.VideoInfo(v.id))
+                        }) {
+                            Box(Modifier.width(170.dp).height(96.dp)) {
+                                VideoThumb(v, Modifier.matchParentSize())
+                                val p = pos.getLong(v.id.toString(), 0)
+                                if (p > 0 && v.duration > 0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(p.toFloat() / v.duration).height(3.dp).background(accent))
+                            }
+                            Text(v.parsed.title + (if (v.parsed.isEpisode) " · S${v.parsed.season}E${v.parsed.episode}" else ""), color = White, fontSize = 13.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+            }
+            Column {
+                if (watching.isNotEmpty()) row("continue watching", watching)
+                row("new videos", newest)
+            }
+        }
         if (askRediscover && rediscover.size >= 5) item {
             Column(Modifier.padding(top = 18.dp).fillMaxWidth().background(Brush.horizontalGradient(listOf(accent, lerp(accent, Color.Black, 0.5f)))).padding(14.dp)) {
                 Text("rediscover?", color = White, fontSize = 28.sp, fontWeight = FontWeight.Light)
                 Text("${rediscover.size} songs you haven't played in a month or more — want to hear them again?", color = White.copy(alpha = 0.85f), fontSize = 14.sp)
-                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("play them", color = Color.Black, fontSize = 16.sp, modifier = Modifier.background(White).tilt { play(rediscover, 0) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp))
-                    Text("see the list", color = White, fontSize = 16.sp, modifier = Modifier.border(2.dp, White)
-                        .tilt { open(Screen.Detail("rediscover", "songs you haven't played lately", rediscover)) }.padding(horizontal = 14.dp, vertical = 6.dp))
-                    Text("not now", color = White.copy(alpha = 0.8f), fontSize = 16.sp,
-                        modifier = Modifier.tilt { Prefs(ctx).rediscoverSkip = dayNo(); askRediscover = false }.padding(vertical = 8.dp))
+                Row(Modifier.padding(top = 12.dp).fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf<Triple<String, Boolean, () -> Unit>>(
+                        Triple("play them", true) { play(rediscover, 0) },
+                        Triple("see list", false) { open(Screen.Detail("rediscover", "songs you haven't played lately", rediscover)) },
+                        Triple("not now", false) { Prefs(ctx).rediscoverSkip = dayNo(); askRediscover = false },
+                    ).forEach { (label, main, act) ->
+                        Box(Modifier.weight(1f).fillMaxHeight().then(if (main) Modifier.background(White) else Modifier.border(2.dp, White)).tilt(act),
+                            contentAlignment = Alignment.Center) {
+                            Text(label, color = if (main) Color.Black else White, fontSize = 15.sp, maxLines = 1)
+                        }
+                    }
                 }
             }
         }
@@ -1644,12 +1713,6 @@ fun DetailScreen(d0: Screen.Detail, conn: PlayerConnection, accent: Color, open:
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("play all", color = accent, fontSize = 20.sp,
                         modifier = Modifier.feather(0, intro).weight(1f).tilt { conn.playSongs(d.songs, 0); open(Screen.Playing) }.padding(vertical = 10.dp))
-                    val vmL = LocalVm.current
-                    if (isAlbum && vmL != null) {
-                        val k = "album:${d0.songs[0].albumId}"
-                        Text(if (vmL.isPinned(k)) "unpin" else "pin to speed dial", color = White, fontSize = 15.sp,
-                            modifier = Modifier.border(1.5.dp, White).tilt { vmL.togglePin(k) }.padding(horizontal = 10.dp, vertical = 5.dp))
-                    }
                 }
             }
             itemsIndexed(d.songs, key = { _, s -> s.id }) { i, s ->
@@ -2136,9 +2199,6 @@ fun ArtistScreen(name: String, vm: MusicViewModel, conn: PlayerConnection, accen
                 }
                 item {
                     Row(Modifier.feather(2, intro).padding(vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val apk = "artist:$name"
-                        Icon(Icons.Rounded.PushPin, "pin", tint = if (vm.isPinned(apk)) accent else White,
-                            modifier = Modifier.size(42.dp).border(2.dp, White).tilt { vm.togglePin(apk) }.padding(9.dp))
                         Text("play", color = White, fontSize = 18.sp, modifier = Modifier.background(accent).tilt { if (songs.isNotEmpty()) play(0) }
                             .padding(horizontal = 22.dp, vertical = 10.dp))
                         Text("shuffle", color = White, fontSize = 18.sp, modifier = Modifier.border(2.dp, White)
