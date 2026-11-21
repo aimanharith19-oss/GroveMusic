@@ -5,3 +5,7 @@
 -dontwarn java.awt.**
 -dontwarn javax.imageio.**
 -dontwarn javax.swing.**
+
+# VLC
+-keep class org.videolan.libvlc.** { *; }
+-dontwarn org.videolan.**

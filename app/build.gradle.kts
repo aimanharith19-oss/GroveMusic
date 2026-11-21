@@ -11,6 +11,8 @@ android {
         applicationId = "com.grove.music"
         minSdk = 24
         targetSdk = 35
+        // VLC's native video engine: 64-bit ARM phones only, keeps the APK small
+        ndk { abiFilters += listOf("arm64-v8a") }
         // every CI build gets a higher version so it installs as an update
         val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionCode = build
@@ -45,6 +47,7 @@ android {
 }
 
 dependencies {
+    implementation("org.videolan.android:libvlc-all:3.6.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.4")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")

@@ -213,6 +213,11 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     val preferFlac = mutableStateOf(prefs.preferFlac)
 
+    val videos = mutableStateOf<List<Video>>(emptyList())
+    fun loadVideos() = viewModelScope.launch {
+        videos.value = withContext(Dispatchers.IO) { runCatching { VideoRepository.query(getApplication()) }.getOrDefault(emptyList()) }
+    }
+
     // ── speed dial pins: "song:<id>", "album:<albumId>", "artist:<name>", "playlist:<id>" ──
     val pins = mutableStateOf(prefs.pins)
     fun isPinned(k: String) = k in pins.value
@@ -247,6 +252,10 @@ class Prefs(ctx: Context) {
     fun saveQueuePosition(index: Int, pos: Long) = sp.edit().putInt("q_idx", index).putLong("q_pos", pos).apply()
     fun loadQueue(): Triple<List<String>, Int, Long> = Triple(
         sp.getString("q_ids", "")!!.split(',').filter { it.isNotBlank() }, sp.getInt("q_idx", 0), sp.getLong("q_pos", 0))
+    /** themoviedb.org API key (free) for movie info */
+    var tmdbKey: String
+        get() = sp.getString("tmdb_key", "")!!
+        set(v) = sp.edit().putString("tmdb_key", v).apply()
     var pins: List<String>
         get() = sp.getString("pins", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("pins", v.joinToString("\n")).apply()

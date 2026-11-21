@@ -7,6 +7,11 @@
             <path android:fillColor="#FF0DC377" android:pathData="M-21,19 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0z" />
             <path android:fillColor="#FF04B06F" android:pathData="M-6,19 a31,31 0 1,0 62,0 a31,31 0 1,0 -62,0z" />
         </group>
+        <!-- film perforations: music + video -->
+        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,33h5v5h-5z" />
+        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,45.5h5v5h-5z" />
+        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,58h5v5h-5z" />
+        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,70.5h5v5h-5z" />
         <path android:pathData="M56.5,68 V30 C56.5,30 57.5,37 63,40.5 C67,43 67.5,48 66,51" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" android:strokeLineCap="round" android:strokeLineJoin="round" />
         <path android:pathData="M49,60.5 a7.5,7.5 0 1,0 0.01,0 z" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" />
     </group>

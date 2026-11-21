@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
@@ -10,7 +11,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="Grove Music"
+        android:label="Grove Media"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Grove"
@@ -39,6 +40,12 @@
             </intent-filter>
         </activity>
         <!-- one launcher entry per accent colour; only the one matching the app theme is enabled -->
+        <!-- video player: its own task so picture-in-picture can float over Grove's home -->
+        <activity android:name=".VideoActivity" android:exported="false"
+            android:taskAffinity="com.grove.music.video" android:launchMode="singleTask"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true" android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
         <activity-alias android:name=".Icon0" android:targetActivity=".MainActivity" android:exported="true"
             android:icon="@mipmap/ic_launcher_0" android:roundIcon="@mipmap/ic_launcher_0" android:enabled="false">
             <intent-filter>

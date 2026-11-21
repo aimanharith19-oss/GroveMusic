@@ -166,6 +166,9 @@ sealed interface Screen {
     data class Artist(val name: String) : Screen
     data class PlaylistView(val id: String) : Screen
     data object Search : Screen
+    data class VideoInfo(val id: Long) : Screen
+    data class Show(val name: String) : Screen
+    data class PersonView(val id: String) : Screen
     data class EditTags(val songId: Long) : Screen
     data class Detail(val title: String, val sub: String, val songs: List<Song>) : Screen
 }
@@ -177,6 +180,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     val perms = remember {
         buildList {
             add(if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.READ_MEDIA_VIDEO)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
             if (Build.VERSION.SDK_INT < 29) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }.toTypedArray()
@@ -224,6 +228,9 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
+                    is Screen.VideoInfo -> VideoInfoScreen(s.id, vm, accent, open)
+                    is Screen.Show -> ShowScreen(s.name, vm, accent, open)
+                    is Screen.PersonView -> PersonScreen(s.id, vm, accent, open)
                     is Screen.EditTags -> EditTagsScreen(s.songId, vm, accent) { forward = false; stack = stack.dropLast(1) }
                     is Screen.PlaylistView -> PlaylistScreen(s.id, vm, conn, accent, open) { forward = false; stack = stack.dropLast(1) }
                 }
@@ -531,7 +538,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("home", "songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
+    val pages = listOf("home", "videos", "songs", "artists", "albums", "folders", "genres", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -546,7 +553,7 @@ fun HomeScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         // panorama title: huge, light, lowercase, slides slower than the content (parallax)
         Box(Modifier.fillMaxWidth().clipToBounds()) {
-            Text("grove music", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
+            Text("grove media", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
                 maxLines = 1, softWrap = false,
                 modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
                     .graphicsLayer { translationX = -pos() * 70.dp.toPx() }
@@ -564,6 +571,7 @@ fun HomeScreen(
                 "no info" -> MissingPage(vm, accent)
                 "stats" -> StatsPage(vm, accent)
                 "home" -> HubPage(vm, conn, accent, open)
+                "videos" -> VideosPage(vm, accent, open)
                 "folders" -> FoldersPage(vm, accent, pager.currentPage == p, { l, i -> conn.playSongs(l, i); open(Screen.Playing) }) { n, l -> open(Screen.Detail(n, "folder · ${l.size} songs", l)) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
@@ -1477,6 +1485,14 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 Text("volume all the way down pauses; turning it up plays again", color = Dim, fontSize = 14.sp)
             }
             Switch(muteP, { muteP = it; prefs.pauseOnMute = it }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+        }
+        var tmdb by remember { mutableStateOf(prefs.tmdbKey) }
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            Text("movie info (TMDB key)", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+            Text("free key from themoviedb.org → settings → API. Needed for movies; TV shows work without it", color = Dim, fontSize = 14.sp)
+            OutlinedTextField(tmdb, { tmdb = it; prefs.tmdbKey = it.trim() }, singleLine = true, placeholder = { Text("paste API key") },
+                shape = androidx.compose.ui.graphics.RectangleShape, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = White, focusedTextColor = White, unfocusedTextColor = White))
         }
         var carLyrics by remember { mutableStateOf(prefs.carLyrics) }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
