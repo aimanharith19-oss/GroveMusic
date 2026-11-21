@@ -9,7 +9,7 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "com.grove.music"
-        minSdk = 24
+        minSdk = 35
         targetSdk = 35
         // VLC's native video engine: 64-bit ARM phones only, keeps the APK small
         ndk { abiFilters += listOf("arm64-v8a") }
