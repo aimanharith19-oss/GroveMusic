@@ -1311,15 +1311,18 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                 row("new videos", newest)
             }
         }
-        if (askRediscover && rediscover.size >= 5) item {
+        if (rediscover.size >= 5) item {
             Column(Modifier.padding(top = 18.dp).fillMaxWidth().background(Brush.horizontalGradient(listOf(accent, lerp(accent, Color.Black, 0.5f)))).padding(14.dp)) {
                 Text("rediscover?", color = White, fontSize = 28.sp, fontWeight = FontWeight.Light)
                 Text("${rediscover.size} songs you haven't played in a month or more — want to hear them again?", color = White.copy(alpha = 0.85f), fontSize = 14.sp)
+                // small covers of what's inside
+                Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    rediscover.distinctBy { it.albumId }.take(7).forEach { Art(it.artUri, accent, Modifier.size(40.dp)) }
+                }
                 Row(Modifier.padding(top = 12.dp).fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf<Triple<String, Boolean, () -> Unit>>(
                         Triple("play them", true) { play(rediscover, 0) },
                         Triple("see list", false) { open(Screen.Detail("rediscover", "songs you haven't played lately", rediscover)) },
-                        Triple("not now", false) { Prefs(ctx).rediscoverSkip = dayNo(); askRediscover = false },
                     ).forEach { (label, main, act) ->
                         Box(Modifier.weight(1f).fillMaxHeight().then(if (main) Modifier.background(White) else Modifier.border(2.dp, White)).tilt(act),
                             contentAlignment = Alignment.Center) {

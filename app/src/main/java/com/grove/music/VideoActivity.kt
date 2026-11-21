@@ -17,6 +17,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -242,27 +243,43 @@ class VideoActivity : ComponentActivity() {
         }) {
             AndroidView({ c -> VLCVideoLayout(c).also { player.attachViews(it, null, true, false) } }, Modifier.fillMaxSize())
             LaunchedEffect(fill) { player.videoScale = if (fill) MediaPlayer.ScaleType.SURFACE_FILL else MediaPlayer.ScaleType.SURFACE_BEST_FIT }
+            val accent = Color(Prefs(this@VideoActivity).accent)
+            val posS = remember { mutableLongStateOf(0L) }; val durS = remember { mutableLongStateOf(0L) }
+            LaunchedEffect(pos, len) { posS.longValue = pos; durS.longValue = len }
             AnimatedVisibility(show && !pip, enter = fadeIn(), exit = fadeOut()) {
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f))) {
-                    // top bar — the PiP button is always here
-                    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Btn(Icons.AutoMirrored.Rounded.ArrowBack) { finish() }
-                        Text(title.value, color = Color.White, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                        Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen) { fill = !fill }
-                        Btn(Icons.Rounded.Headphones) { goAudioOnly() }
-                        if (Build.VERSION.SDK_INT >= 26) Btn(Icons.Rounded.PictureInPictureAlt) { enterPip() }
+                Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to Color.Black.copy(alpha = 0.75f), 0.3f to Color.Transparent, 0.62f to Color.Transparent,
+                    1f to androidx.compose.ui.graphics.lerp(accent, Color.Black, 0.6f).copy(alpha = 0.92f)))) {
+                    // header: Grove style — small caps label, big light lowercase title
+                    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp), verticalAlignment = Alignment.Top) {
+                        Btn(Icons.AutoMirrored.Rounded.ArrowBack, outline = false) { finish() }
+                        Column(Modifier.weight(1f).padding(start = 6.dp)) {
+                            Text("NOW PLAYING · VIDEO", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, letterSpacing = 1.sp)
+                            Text(title.value.lowercase(), color = Color.White, fontSize = 26.sp, lineHeight = 30.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
                     }
-                    Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Btn(Icons.Rounded.Replay10, 56) { player.time = (player.time - 10_000).coerceAtLeast(0) }
-                        Btn(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, 76) { if (player.isPlaying) player.pause() else player.play() }
-                        Btn(Icons.Rounded.Forward10, 56) { player.time = player.time + 10_000 }
-                    }
-                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
-                        Slider(drag ?: if (len > 0) pos.toFloat() / len else 0f, { drag = it },
-                            onValueChangeFinished = { drag?.let { player.time = (it * len).toLong() }; drag = null },
-                            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color(Prefs(this@VideoActivity).accent)))
-                        Row { Text(t(pos), color = Color.White, fontSize = 13.sp); Spacer(Modifier.weight(1f)); Text(t(len), color = Color.White, fontSize = 13.sp) }
+                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        SeekBar(posS, durS, accent) { player.time = it }
+                        TimeRow(posS, durS)
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen, 44, outline = false) { fill = !fill }
+                            Btn(Icons.Rounded.Replay10, 56) { player.time = (player.time - 10_000).coerceAtLeast(0) }
+                            // accent play button with a soft halo, like the music player
+                            Box(Modifier.size(80.dp).pointerInput(Unit) { detectTapGestures { toggle() } }, contentAlignment = Alignment.Center) {
+                                Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent)), CircleShape))
+                                Box(Modifier.size(66.dp).clip(CircleShape).background(accent)
+                                    .then(Modifier.border(2.dp, Color.White, CircleShape)), contentAlignment = Alignment.Center) {
+                                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(36.dp))
+                                }
+                            }
+                            Btn(Icons.Rounded.Forward10, 56) { player.time = player.time + 10_000 }
+                            Row {
+                                Btn(Icons.Rounded.Headphones, 44, outline = false) { goAudioOnly() }
+                                Btn(Icons.Rounded.PictureInPictureAlt, 44, outline = false) { enterPip() }
+                            }
+                        }
                     }
                 }
             }
@@ -272,8 +289,9 @@ class VideoActivity : ComponentActivity() {
     private fun t(ms: Long): String { val s = ms / 1000; return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
     @Composable
-    private fun Btn(icon: ImageVector, size: Int = 44, onClick: () -> Unit) {
-        Box(Modifier.size(size.dp).clip(CircleShape).pointerInput(Unit) { detectTapGestures { onClick() } }, contentAlignment = Alignment.Center) {
+    private fun Btn(icon: ImageVector, size: Int = 44, outline: Boolean = true, onClick: () -> Unit) {
+        Box(Modifier.size(size.dp).clip(CircleShape).then(if (outline) Modifier.border(2.dp, Color.White, CircleShape) else Modifier)
+            .pointerInput(Unit) { detectTapGestures { onClick() } }, contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = Color.White, modifier = Modifier.size((size * 0.6f).dp))
         }
     }
