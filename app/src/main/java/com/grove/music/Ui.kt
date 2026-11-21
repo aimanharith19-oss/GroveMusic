@@ -468,7 +468,6 @@ fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onD
         Text("add to playlist", color = White, fontSize = 34.sp, fontWeight = FontWeight.Light)
         Text(if (songs.size == 1) "1 song" else "${songs.size} songs", color = White.copy(alpha = 0.7f), fontSize = 13.sp,
             modifier = Modifier.padding(bottom = 8.dp))
-        val toConvert = remember(songs) { vm.needingFlac(songs.mapNotNull { vm.song(it.toString()) }) }
         val one = songs.singleOrNull()?.let { vm.song(it.toString()) }
         if (!naming && one != null) {
             Row(Modifier.fillMaxWidth().tilt { onDone(); vm.editTags?.invoke(one.id) }.padding(vertical = 8.dp),
@@ -481,17 +480,6 @@ fun AddToPlaylistSheet(vm: MusicViewModel, songs: List<Long>, accent: Color, onD
             }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(46.dp).background(accent), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Radio, null, tint = White) }
                 Text("start radio", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
-            }
-        }
-        if (!naming && toConvert.isNotEmpty() && vm.flacJob.value == null) {
-            Row(Modifier.fillMaxWidth().tilt {
-                vm.convertToFlac(toConvert)
-                android.widget.Toast.makeText(ctx, "converting to FLAC…", android.widget.Toast.LENGTH_SHORT).show(); onDone()
-            }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(46.dp).background(Color.White), contentAlignment = Alignment.Center) {
-                    Text("FLAC", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-                Text("convert to FLAC", color = White, fontSize = 21.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(start = 14.dp))
             }
         }
         if (naming) {
@@ -537,7 +525,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists", "stats", "no info")
+    val pages = listOf("songs", "artists", "albums", "folders", "genres", "countries", "playlists", "stats", "no info")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -570,6 +558,7 @@ fun HomeScreen(
                 "countries" -> GroupTiles(vm, accent, "country", { Meta.countryOf(vm.getApplication(), it) ?: "unknown" }) { n, l -> open(Screen.Detail(n, "country · ${l.size} songs", l)) }
                 "no info" -> MissingPage(vm, accent)
                 "stats" -> StatsPage(vm, accent)
+                "folders" -> FoldersPage(vm, accent, pager.currentPage == p, { l, i -> conn.playSongs(l, i); open(Screen.Playing) }) { n, l -> open(Screen.Detail(n, "folder · ${l.size} songs", l)) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -1121,6 +1110,57 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
     }
 }
 
+/** Browse your music by folder: tap into folders, play everything inside, back goes up a level. */
+@Composable
+fun FoldersPage(vm: MusicViewModel, accent: Color, active: Boolean, onPlay: (List<Song>, Int) -> Unit, onPlayAll: (String, List<Song>) -> Unit) {
+    val songs = vm.songs.value
+    val root = remember(songs) {
+        // deepest folder that contains every music folder (usually /storage/emulated/0)
+        val paths = songs.map { it.folder }.filter { it.startsWith("/") }.distinct()
+        if (paths.isEmpty()) "/" else paths.reduce { a, b ->
+            var i = 0; val pa = a.split('/'); val pb = b.split('/')
+            while (i < pa.size && i < pb.size && pa[i] == pb[i]) i++
+            pa.take(i).joinToString("/").ifEmpty { "/" }
+        }
+    }
+    var path by rememberSaveable { mutableStateOf<String?>(null) }
+    val cur = path ?: root
+    BackHandler(active && cur != root) { path = cur.substringBeforeLast('/').takeIf { it.length >= root.length } ?: root }
+    val inside = remember(songs, cur) { songs.filter { it.folder == cur || it.folder.startsWith("$cur/") } }
+    val subs = remember(inside, cur) {
+        inside.filter { it.folder != cur }.groupBy { cur + "/" + it.folder.removePrefix("$cur/").substringBefore('/') }
+            .entries.sortedBy { it.key.lowercase() }
+    }
+    val here = remember(inside, cur) { inside.filter { it.folder == cur }.sortedBy { it.title.lowercase() } }
+    val intro = rememberIntro()
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            Text(cur.removePrefix(root).ifEmpty { "phone storage" }.trim('/').replace("/", "  ›  ").ifEmpty { "phone storage" },
+                color = Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (cur != root) Text("‹ up", color = accent, fontSize = 18.sp,
+                    modifier = Modifier.tilt { path = cur.substringBeforeLast('/').takeIf { it.length >= root.length } ?: root }.padding(vertical = 4.dp))
+                if (inside.isNotEmpty()) Text("play all ${inside.size}", color = accent, fontSize = 18.sp,
+                    modifier = Modifier.tilt { onPlayAll(cur.substringAfterLast('/').ifEmpty { "phone storage" }, inside) }.padding(vertical = 4.dp))
+            }
+        }
+        itemsIndexed(subs, key = { _, e -> "d" + e.key }) { i, (dir, list) ->
+            Row(Modifier.feather(i, intro).fillMaxWidth().tilt { path = dir }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(50.dp).background(lerp(accent, Color.Black, 0.35f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Folder, null, tint = White)
+                }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text(dir.substringAfterLast('/').lowercase(), color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${list.size} songs", color = Dim, fontSize = 13.sp)
+                }
+            }
+        }
+        itemsIndexed(here, key = { _, s -> s.id }) { i, s ->
+            SongRow(s.title, "${s.artist} · ${s.format}", s.id) { onPlay(here, i) }
+        }
+    }
+}
+
 /** Last tab: songs with no cover, artist or album — tap one to edit it, or fix them all online. */
 @Composable
 fun MissingPage(vm: MusicViewModel, accent: Color) {
@@ -1273,23 +1313,6 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
         SettingItem("download all artist info",
             if (sync != null) "downloading ${sync.first} of ${sync.second}…"
             else "$have of ${names.size} artists saved for offline · photos, bios and discographies") { vm.syncArtists() }
-        // ── FLAC
-        Text("flac", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
-        val job = vm.flacJob.value
-        val need = remember(vm.songs.value, job) { vm.needingFlac(vm.songs.value).size }
-        if (job != null) {
-            Text("converting ${job.first + 1} of ${job.second}: ${job.third}", color = White, fontSize = 15.sp, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-            val sp = vm.flacSongProgress
-            Canvas(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(4.dp)) {
-                val f = (job.first + sp.floatValue) / job.second
-                drawRect(Color.White.copy(alpha = 0.15f)); drawRect(accent, size = size.copy(width = size.width * f))
-            }
-            Text("keep Grove open while it converts", color = Dim, fontSize = 13.sp)
-        } else {
-            SettingItem("convert library to FLAC", if (need == 0) "every song already has a FLAC version"
-                else "$need songs · saved to Music/${FlacConverter.FOLDER} with tags and cover art") { vm.convertToFlac(vm.songs.value) }
-        }
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("hide duplicate songs", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)

@@ -208,38 +208,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun artistNames() = songs.value.flatMap { ArtistRepository.split(it.artist) }.distinctBy { ArtistRepository.key(it) }
 
-    /** (done, total, current song title) while converting to FLAC, null when idle */
-    val flacJob = mutableStateOf<Triple<Int, Int, String>?>(null)
-    val flacSongProgress = androidx.compose.runtime.mutableFloatStateOf(0f)
     val preferFlac = mutableStateOf(prefs.preferFlac)
-
-    private fun sameKey(s: Song) = ArtistRepository.norm(s.title) + "|" + ArtistRepository.norm(s.artist)
-
-    /** Songs that still need a FLAC copy. */
-    fun needingFlac(list: List<Song>): List<Song> {
-        val have = all.filter { FlacConverter.isFlac(it) }.map { sameKey(it) }.toHashSet()
-        return list.filter { !FlacConverter.isFlac(it) && sameKey(it) !in have }
-    }
-
-    fun convertToFlac(list: List<Song>) {
-        if (flacJob.value != null) return
-        val todo = needingFlac(list)
-        if (todo.isEmpty()) return
-        viewModelScope.launch {
-            var done = 0
-            withContext(Dispatchers.Default) {
-                for (s in todo) {
-                    flacJob.value = Triple(done, todo.size, s.title)
-                    flacSongProgress.floatValue = 0f
-                    FlacConverter.convert(getApplication(), s) { flacSongProgress.floatValue = it }
-                    done++
-                }
-            }
-            flacJob.value = null
-            delay(1500) // let the media scanner index the new files
-            load()
-        }
-    }
 
     fun setPreferFlac(on: Boolean) { preferFlac.value = on; prefs.preferFlac = on; apply() }
 
