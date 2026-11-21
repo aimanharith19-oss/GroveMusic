@@ -43,9 +43,12 @@ class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private var library: List<Song>? = null
 
-    private fun songs(): List<Song> = library ?: runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
+    @Synchronized private fun songs(): List<Song> = library ?: runCatching { MusicRepository.query(this) }.getOrDefault(emptyList())
         .also { ArtistRepository.learn(it) }
         .let { val p = Prefs(this); visibleSongs(it, p.hiddenFolders, p.preferFlac) }.also { library = it }
+
+    /** car / browser requests are answered off the main thread so Android Auto never times out with an empty list */
+    private val bg = com.google.common.util.concurrent.MoreExecutors.listeningDecorator(java.util.concurrent.Executors.newFixedThreadPool(2))
 
     private fun byId() = songs().associateBy { it.id.toString() }
 
@@ -167,8 +170,13 @@ class PlaybackService : MediaLibraryService() {
         player.replaceMediaItem(idx, item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setArtist(text).build()).build())
     }
 
-    private fun mixes() = Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, Prefs(this).mixSalt,
-        { Meta.genreOf(this, it) })
+    private var mixCache: Pair<String, List<Pair<String, List<Song>>>>? = null
+    @Synchronized private fun mixes(): List<Pair<String, List<Song>>> {
+        val p = Prefs(this)
+        val key = "${java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)}|${p.mixSalt}|${songs().size}"
+        mixCache?.takeIf { it.first == key }?.let { return it.second }
+        return Radio.dailyMixes(songs(), PlaylistStore.get(this).liked.ids, p.mixSalt, { Meta.genreOf(this, it) }).also { mixCache = key to it }
+    }
 
     // ── pause when the media volume is turned all the way down; resume when it comes back up ──
     private var muteReceiver: android.content.BroadcastReceiver? = null
@@ -289,6 +297,7 @@ class PlaybackService : MediaLibraryService() {
             .build()
         val prefs = Prefs(this)
         startCrossfade(player, prefs)
+        bg.submit { songs(); runCatching { mixes() } }
         // listening history for the stats tab
         scope.launch {
             var id: Long? = null; var start = 0L; var heard = 0L
@@ -361,7 +370,7 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onGetLibraryRoot(s: MediaLibrarySession, b: MediaSession.ControllerInfo, params: LibraryParams?)
                 : ListenableFuture<LibraryResult<MediaItem>> {
-                library = null // pick up new songs / playlists
+                bg.submit { synchronized(this@PlaybackService) { library = null; mixCache = null }; songs(); mixes() } // refresh quietly
                 val extras = Bundle().apply {
                     putBoolean("android.media.browse.SEARCH_SUPPORTED", true)
                     putInt(STYLE_BROWSABLE, 1); putInt(STYLE_PLAYABLE, 1)
@@ -371,9 +380,11 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onGetChildren(s: MediaLibrarySession, b: MediaSession.ControllerInfo, parentId: String,
                                        page: Int, pageSize: Int, params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-                val all = runCatching { children(parentId) }.getOrDefault(emptyList())
-                val list = if (pageSize in 1 until Int.MAX_VALUE) all.drop(page * pageSize).take(pageSize) else all
-                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
+                return bg.submit<LibraryResult<ImmutableList<MediaItem>>> {
+                    val all = runCatching { children(parentId) }.getOrDefault(emptyList())
+                    val list = if (pageSize in 1 until Int.MAX_VALUE) all.drop(page * pageSize).take(pageSize) else all
+                    LibraryResult.ofItemList(ImmutableList.copyOf(list), params)
+                }
             }
 
             override fun onGetItem(s: MediaLibrarySession, b: MediaSession.ControllerInfo, mediaId: String)
@@ -392,8 +403,10 @@ class PlaybackService : MediaLibraryService() {
 
             override fun onGetSearchResult(s: MediaLibrarySession, b: MediaSession.ControllerInfo, query: String,
                                            page: Int, pageSize: Int, params: LibraryParams?): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-                val list = search(query).drop(page * pageSize).take(pageSize).map { playable("search", it) }
-                return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(list), params))
+                return bg.submit<LibraryResult<ImmutableList<MediaItem>>> {
+                    val list = search(query).drop(page * pageSize).take(pageSize).map { playable("search", it) }
+                    LibraryResult.ofItemList(ImmutableList.copyOf(list), params)
+                }
             }
 
             override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo,
@@ -449,7 +462,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onDestroy() {
         flushStats?.invoke()
-        scope.cancel()
+        scope.cancel(); bg.shutdownNow()
         fader?.release(); fader = null
         muteReceiver?.let { runCatching { unregisterReceiver(it) } }
         session?.run { player.release(); release() }
