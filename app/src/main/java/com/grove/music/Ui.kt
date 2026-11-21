@@ -536,7 +536,7 @@ fun HomeScreen(
     vm: MusicViewModel, conn: PlayerConnection, accent: Color,
     open: (Screen) -> Unit, askPerms: () -> Unit,
 ) {
-    val pages = listOf("songs", "artists", "albums", "playlists")
+    val pages = listOf("songs", "artists", "albums", "genres", "countries", "playlists")
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
@@ -565,6 +565,8 @@ fun HomeScreen(
                     conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing)
                 }) { play(songs, it) }
                 "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
+                "genres" -> GroupTiles(vm, accent, "genre", { Meta.genreOf(vm.getApplication(), it) }) { n, l -> open(Screen.Detail(n, "genre · ${l.size} songs", l)) }
+                "countries" -> GroupTiles(vm, accent, "country", { Meta.countryOf(vm.getApplication(), it) ?: "unknown" }) { n, l -> open(Screen.Detail(n, "country · ${l.size} songs", l)) }
                 "playlists" -> PlaylistsPage(vm, accent, onMix = { n, l -> open(Screen.Detail(n, "radio mix · ${l.size} songs", l)) }) { open(Screen.PlaylistView(it)) }
                 "albums" -> AlbumsPage(songs, accent) { list ->
                     open(Screen.Detail(list[0].album, list[0].artist, list.sortedWith(compareBy({ it.track }, { it.title }))))
@@ -820,7 +822,11 @@ fun PlaylistsPage(vm: MusicViewModel, accent: Color, onMix: (String, List<Song>)
             } else Text("+ new playlist", color = accent, fontSize = 20.sp,
                 modifier = Modifier.feather(0, intro).fillMaxWidth().tilt { naming = true }.padding(vertical = 8.dp))
         }
-        val mixes = Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue)
+        val ctxM = LocalContext.current
+        val mixes = remember(vm.songs.value, store.liked.ids, vm.mixSalt.intValue, vm.metaTick.intValue) {
+            Radio.dailyMixes(vm.songs.value, store.liked.ids, vm.mixSalt.intValue,
+                { Meta.genreOf(ctxM, it) }, { Meta.countryOf(ctxM, it) })
+        }
         if (mixes.isNotEmpty()) {
             item {
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -957,6 +963,45 @@ fun SwipeToRemove(modifier: Modifier, onRemove: () -> Unit, content: @Composable
                     onDragCancel = { scope.launch { off.animateTo(0f, tween(300, easing = WpEase)) } }
                 ) { ch, d -> ch.consume(); scope.launch { off.snapTo(off.value + d) } }
             }) { content() }
+    }
+}
+
+/** Genres / countries as Metro tiles with a cover mosaic; tap to see the songs, play or shuffle. */
+@Composable
+fun GroupTiles(vm: MusicViewModel, accent: Color, what: String, keyOf: (Song) -> String, onOpen: (String, List<Song>) -> Unit) {
+    val tick = vm.metaTick.intValue
+    val groups = remember(vm.songs.value, tick) {
+        vm.songs.value.groupBy(keyOf).entries.sortedWith(compareBy({ it.key == "other" || it.key == "unknown" }, { -it.value.size }))
+            .map { it.key to it.value }
+    }
+    val sync = vm.metaSync.value
+    val intro = rememberIntro()
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        if (sync != null) item {
+            Text("finding ${what}s online ${sync.first} of ${sync.second}", color = Dim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        if (groups.isEmpty()) item { EmptyMsg("nothing here yet") }
+        items(groups.chunked(2).size) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                groups.chunked(2)[row].forEachIndexed { i, (name, list) ->
+                    Box(Modifier.feather(row * 2 + i, intro).weight(1f).aspectRatio(1f).background(lerp(accent, Color.Black, 0.3f))
+                        .tilt { onOpen(name, list) }) {
+                        val covers = list.distinctBy { it.albumId }.take(4)
+                        Column {
+                            for (r in 0..1) Row(Modifier.weight(1f)) { for (c in 0..1) {
+                                Art((covers.getOrNull(r * 2 + c) ?: covers.firstOrNull())?.artUri, accent, Modifier.weight(1f).fillMaxHeight())
+                            } }
+                        }
+                        Box(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.9f)))))
+                        Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
+                            Text(name.lowercase(), color = White, fontSize = 20.sp, fontWeight = FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${list.size} songs", color = White.copy(alpha = 0.8f), fontSize = 12.sp)
+                        }
+                    }
+                }
+                if (groups.chunked(2)[row].size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
     }
 }
 

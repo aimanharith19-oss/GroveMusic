@@ -133,6 +133,10 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         syncArtists()
     }
 
+    /** genre/country lookups */
+    val metaSync = mutableStateOf<Pair<Int, Int>?>(null)
+    val metaTick = androidx.compose.runtime.mutableIntStateOf(0)
+
     /** (done, total) while artist info is downloading, null when idle */
     val artistSync = mutableStateOf<Pair<Int, Int>?>(null)
     private var syncing = false
@@ -148,6 +152,9 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
                 if (d % 5 == 0 || d == t) artistTick.intValue++
             }
             artistSync.value = null; artistTick.intValue++
+            // genre per album + country per singer, kept for offline
+            Meta.sync(getApplication(), songs.value) { d, t -> metaSync.value = if (d >= t) null else d to t; if (d % 10 == 0) metaTick.intValue++ }
+            metaSync.value = null; metaTick.intValue++
             // official track order for every album, kept for offline
             songs.value.distinctBy { it.albumId }.forEach { AlbumOrder.load(getApplication(), it.album, it.artist) }
             syncing = false

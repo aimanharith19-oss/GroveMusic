@@ -23,7 +23,8 @@ object Radio {
     }
 
     /** 3 radio mixes of up to 20 songs, new every day (or when [salt] changes), seeded from favourite singers */
-    fun dailyMixes(all: List<Song>, liked: List<Long>, salt: Int = 0): List<Pair<String, List<Song>>> {
+    fun dailyMixes(all: List<Song>, liked: List<Long>, salt: Int = 0,
+                   genreOf: (Song) -> String = { it.genre.lowercase() }, countryOf: (Song) -> String? = { null }): List<Pair<String, List<Song>>> {
         if (all.size < 5) return emptyList()
         val day = Calendar.getInstance().run { get(Calendar.YEAR) * 1000 + get(Calendar.DAY_OF_YEAR) }
         val rnd = Random(day * 31 + salt)
@@ -36,7 +37,7 @@ object Radio {
             "${ArtistRepository.primary(seed.artist).lowercase()} radio" to build(seed, all, 30, rnd)
         }.toMutableList()
         // genre mixes: two of your genres with enough songs
-        all.filter { it.genre.isNotBlank() && it.genre != "unknown genre" }.groupBy { it.genre.lowercase() }
+        all.groupBy(genreOf).filter { it.key != "other" && it.key != "unknown genre" && it.key.isNotBlank() }
             .filter { it.value.size >= 8 }.entries.shuffled(rnd).take(3)
             .forEach { (g, l) -> mixes += "$g mix" to l.shuffled(rnd).take(30) }
         // decade + single-year mixes
@@ -45,6 +46,9 @@ object Radio {
             .forEach { (d, l) -> mixes += "${d}s mix" to l.shuffled(rnd).take(30) }
         dated.groupBy { it.year }.filter { it.value.size >= 8 }.entries.shuffled(rnd).firstOrNull()
             ?.let { (y, l) -> mixes += "best of $y" to l.shuffled(rnd).take(30) }
+        // country mixes
+        all.groupBy { countryOf(it) }.filterKeys { it != null }.filter { it.value.size >= 8 }.entries.shuffled(rnd).take(2)
+            .forEach { (c, l) -> mixes += "${c!!.lowercase()} mix" to l.shuffled(rnd).take(30) }
         // a pure shuffle of everything to fill up
         if (mixes.size < 10) mixes += "anything goes" to all.shuffled(rnd).take(30)
         return mixes.take(10)
