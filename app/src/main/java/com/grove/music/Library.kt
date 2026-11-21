@@ -34,7 +34,10 @@ data class Song(
     val added: Long = 0,
 ) {
     val folder: String get() = path?.substringBeforeLast('/', "")?.ifEmpty { null } ?: "unknown folder"
-    val artUri: Uri get() = ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
+    /** album cover; songs with no album use their own embedded picture, never another song's cover */
+    val artUri: Uri get() = if (album == "unknown album")
+        Uri.parse("content://media/external/audio/media/$id/albumart")
+    else ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId)
     val format: String get() = formatOf(mime, displayName)
 }
 

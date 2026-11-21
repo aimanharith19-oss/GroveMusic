@@ -119,6 +119,13 @@ class VideoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // true full screen: draw under the camera cut-out, hide status & navigation bars (swipe from an edge to peek)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS }
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         current = this
         lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--no-drop-late-frames", "--no-skip-frames"))
         player = MediaPlayer(lib)

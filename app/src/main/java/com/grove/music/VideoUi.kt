@@ -116,7 +116,7 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     var checked by remember { mutableStateOf(false) }
     LaunchedEffect(all) {
         val m = HashMap<Long, Title>()
-        all.forEach { v -> VideoMeta.movie(ctx, v.parsed)?.let { m[v.id] = it } ; if (m.size % 6 == 0) found = m.toMap() }
+        all.forEach { v -> VideoMeta.movieFor(ctx, v)?.let { m[v.id] = it } ; if (m.size % 6 == 0) found = m.toMap() }
         found = m.toMap(); checked = true
     }
     val movies = all.filter { it.id in found }
@@ -163,18 +163,22 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
             }
         }
         if (others.isNotEmpty()) item {
-            SectionLabel(if (checked) "other videos · no info found" else "other videos · checking…", accent, Modifier.padding(top = 14.dp))
+            SectionLabel(if (checked) "other videos · matched on YouTube where possible" else "other videos · checking…", accent, Modifier.padding(top = 14.dp))
         }
         items(others.chunked(2).size) { r ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 others.chunked(2)[r].forEach { v ->
-                    Column(Modifier.weight(1f).tilt { VideoActivity.open(ctx, v, v.parsed.title) }) {
+                    val yt by produceState<YtInfo?>(null, v.id) { value = VideoMeta.youtube(ctx, v.parsed.title) }
+                    Column(Modifier.weight(1f).tilt { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                             VideoThumb(v, Modifier.matchParentSize())
+                            if (yt != null) Text("YouTube", color = W, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
+                                .background(Color(0xFFCC0000)).padding(horizontal = 4.dp, vertical = 1.dp))
                             Text(fmtDur(v.duration), color = W, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
                                 .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 1.dp))
                         }
-                        Text(v.name.substringBeforeLast('.'), color = W, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        Text(yt?.title ?: v.name.substringBeforeLast('.'), color = W, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        yt?.let { Text(listOf(it.channel, it.published).filter { x -> x.isNotBlank() }.joinToString(" · "), color = D, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
                 repeat(2 - others.chunked(2)[r].size) { Spacer(Modifier.weight(1f)) }
@@ -184,6 +188,48 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
 }
 
 private fun fmtDur(ms: Long): String { val m = ms / 60000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
+
+/** Type words, pick the right movie (TMDB) — or keep the YouTube match. Remembered for this file. */
+@Composable
+private fun OnlineSearch(v: Video, accent: Color, done: () -> Unit) {
+    val ctx = LocalContext.current
+    var q by remember { mutableStateOf(v.parsed.title) }
+    var hits by remember { mutableStateOf<List<VideoMeta.Hit>?>(null) }
+    var yt by remember { mutableStateOf<YtInfo?>(null) }
+    val scope = rememberCoroutineScope()
+    fun go() { scope.launch { hits = VideoMeta.searchMovies(ctx, q); yt = VideoMeta.youtube(ctx, q) } }
+    LaunchedEffect(Unit) { go() }
+    Column(Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.06f)).padding(10.dp)) {
+        androidx.compose.material3.OutlinedTextField(q, { q = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { Icon(Icons.Rounded.Search, "search", tint = W, modifier = Modifier.tilt { go() }) },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { go() }),
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedBorderColor = accent, cursorColor = W, focusedTextColor = W, unfocusedTextColor = W))
+        if (Prefs(ctx).tmdbKey.isBlank()) Text("add a TMDB key in settings to search movies", color = D, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        hits?.forEach { h ->
+            Row(Modifier.fillMaxWidth().tilt { VideoMeta.setPick(ctx, v, "tmdb:${h.id}"); done() }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(46.dp).height(69.dp).background(Color(0xFF1A1A1A))) {
+                    if (h.poster != null) AsyncImage(h.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                }
+                Column(Modifier.padding(start = 10.dp)) {
+                    Text(h.name + (h.year?.let { " ($it)" } ?: ""), color = W, fontSize = 15.sp)
+                    Text(h.overview, color = D, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        yt?.let { y ->
+            Row(Modifier.fillMaxWidth().tilt { VideoMeta.setPick(ctx, v, "q:${q}"); done() }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(y.thumb, null, contentScale = ContentScale.Crop, modifier = Modifier.width(92.dp).height(52.dp))
+                Column(Modifier.padding(start = 10.dp)) {
+                    Text("YouTube: " + y.title, color = W, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(y.channel, color = D, fontSize = 11.sp)
+                }
+            }
+        }
+        if (VideoMeta.pick(ctx, v) != null) Text("forget my pick", color = D, fontSize = 13.sp,
+            modifier = Modifier.tilt { VideoMeta.setPick(ctx, v, null); done() }.padding(top = 6.dp))
+    }
+}
 
 @Composable
 private fun Hero(img: String?, accent: Color, content: @Composable ColumnScope.() -> Unit) {
@@ -218,13 +264,17 @@ private fun CastRow(cast: List<CastMember>, accent: Color, open: (Screen) -> Uni
 fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val ctx = LocalContext.current
     val v = vm.videos.value.firstOrNull { it.id == id } ?: return
-    val t by produceState<Title?>(null, id) { value = VideoMeta.movie(ctx, v.parsed) }
+    var again by remember { mutableIntStateOf(0) }
+    val t by produceState<Title?>(null, id, again) { value = VideoMeta.movieFor(ctx, v) }
+    var searching by remember { mutableStateOf(false) }
     val (_, rename) = rememberRenamer { n -> android.widget.Toast.makeText(ctx, if (n > 0) "renamed" else "name already matches", android.widget.Toast.LENGTH_SHORT).show(); vm.loadVideos() }
     val deep = lerp(accent, Color.Black, 0.78f)
     LazyColumn(Modifier.fillMaxSize().background(deep)) {
         item {
-            Hero(t?.backdrop, accent) {
-                Text((t?.name ?: v.parsed.title).lowercase(), color = W, fontSize = 44.sp, fontWeight = FontWeight.Light, lineHeight = 46.sp)
+            val yt by produceState<YtInfo?>(null, id, t) { value = if (t == null) VideoMeta.youtube(ctx, v.parsed.title) else null }
+            Hero(t?.backdrop ?: yt?.thumb, accent) {
+                yt?.let { Text("YOUTUBE · ${it.channel}".uppercase(), color = W.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                Text((t?.name ?: yt?.title ?: v.parsed.title).lowercase(), color = W, fontSize = 44.sp, fontWeight = FontWeight.Light, lineHeight = 46.sp)
                 Text(listOfNotNull(t?.year?.toString(), t?.rating?.takeIf { it > 0 }?.let { "★ %.1f".format(it) }, fmtDur(v.duration),
                     t?.genres?.take(3)?.joinToString(", ")).joinToString(" · "), color = W.copy(alpha = 0.8f), fontSize = 14.sp)
             }
@@ -239,6 +289,9 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                         .padding(horizontal = 16.dp, vertical = 9.dp))
                 }
                 Text(v.name, color = D, fontSize = 11.sp)
+                Text(if (t == null) "search online for this video" else "wrong match? search again", color = accent, fontSize = 15.sp,
+                    modifier = Modifier.tilt { searching = !searching }.padding(vertical = 8.dp))
+                if (searching) OnlineSearch(v, accent) { searching = false; again++ }
                 t?.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = W.copy(alpha = 0.9f), fontSize = 15.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp)) }
                 if (t == null) Text(if (Prefs(ctx).tmdbKey.isBlank()) "add a TMDB key in settings to find this movie online" else "not found online",
                     color = D, fontSize = 14.sp, modifier = Modifier.padding(top = 10.dp))

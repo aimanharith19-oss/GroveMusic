@@ -553,7 +553,7 @@ fun HomeScreen(
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         // panorama title: huge, light, lowercase, slides slower than the content (parallax)
         Box(Modifier.fillMaxWidth().clipToBounds()) {
-            Text("grove media", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
+            Text("grovemedia", color = White, fontSize = 84.sp, fontWeight = FontWeight.Light, letterSpacing = (-3).sp,
                 maxLines = 1, softWrap = false,
                 modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true)
                     .graphicsLayer { translationX = -pos() * 70.dp.toPx() }
@@ -1198,6 +1198,18 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
 
     // speed dial: your pins first, then your most played singers / songs
     var dialAuto by remember { mutableStateOf(Prefs(ctx).dialAuto) }
+    var pinAsk by remember { mutableStateOf<String?>(null) }
+    pinAsk?.let { k ->
+        val s0 = byId[k.substringAfter(':').toLongOrNull()]
+        val pinnedNow = vm.isPinned(k)
+        AlertDialog(onDismissRequest = { pinAsk = null }, containerColor = lerp(accent, Color.Black, 0.6f),
+            title = { Text(if (pinnedNow) "remove from speed dial?" else "pin to speed dial?", color = White, fontWeight = FontWeight.Light) },
+            text = { Text(s0?.let { "${it.title} · ${it.artist}" } ?: "", color = White.copy(alpha = 0.85f)) },
+            confirmButton = { Text(if (pinnedNow) "remove" else "pin", color = White, fontSize = 16.sp,
+                modifier = Modifier.background(accent).tilt { vm.togglePin(k); pinAsk = null }.padding(horizontal = 18.dp, vertical = 8.dp)) },
+            dismissButton = { Text("cancel", color = White, fontSize = 16.sp,
+                modifier = Modifier.border(2.dp, White).tilt { pinAsk = null }.padding(horizontal = 16.dp, vertical = 6.dp)) })
+    }
     // speed dial is songs only: your pins first, then (if auto) your most played songs
     val dial = remember(vm.pins.value, plays, songs, dialAuto) {
         val pinned = vm.pins.value.filter { it.startsWith("song:") }
@@ -1235,7 +1247,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                                 when (type) {
                                     "song" -> byId[v.toLongOrNull()]?.let { s ->
                                         val photo = remember(s.artist, tick) { ArtistRepository.cached(ctx, ArtistRepository.primary(s.artist))?.image }
-                                        FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) }, { vm.togglePin(key) },
+                                        FlipTile(m, if (pinned) accent else dark, { play(listOf(s) + Radio.build(s, songs).drop(1), 0) }, { pinAsk = key },
                                             { Art(s.artUri, accent, Modifier.matchParentSize())
                                               if (pinned) Icon(Icons.Rounded.PushPin, null, tint = White, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp)) },
                                             {   // back: the singer's photo with the song name
