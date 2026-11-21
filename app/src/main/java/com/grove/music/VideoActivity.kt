@@ -165,6 +165,20 @@ class VideoActivity : ComponentActivity() {
         videoId = i.getLongExtra("id", 0)
         vw = i.getIntExtra("w", 16).coerceAtLeast(1); vh = i.getIntExtra("h", 9).coerceAtLeast(1)
         title.value = i.getStringExtra("title").orEmpty()
+        // opened from a file manager / another app
+        if (i.action == Intent.ACTION_VIEW && i.data != null) {
+            val u = i.data!!
+            title.value = runCatching { contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } }.getOrNull()?.substringBeforeLast('.') ?: (u.lastPathSegment ?: "video")
+            val m = if (u.scheme == "content") {
+                pfd?.close(); pfd = contentResolver.openFileDescriptor(u, "r") ?: return
+                Media(lib, pfd!!.fileDescriptor)
+            } else Media(lib, u).apply { addOption(":network-caching=1500") }
+            player.media = m; m.release()
+            @Suppress("DEPRECATION")
+            (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            player.play(); return
+        }
         i.getStringExtra("url")?.let { url ->
             val m = Media(lib, Uri.parse(url)).apply { addOption(":network-caching=1500"); setHWDecoderEnabled(true, false) }
             player.media = m; m.release()

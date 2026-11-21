@@ -548,6 +548,11 @@ fun HomeScreen(
     val pos: () -> Float = { pager.currentPage + pager.currentPageOffsetFraction }
     var menu by remember { mutableStateOf(false) }
     BackHandler(menu) { menu = false }
+    var streamOpen by remember { mutableStateOf(false) }
+    if (streamOpen) AlertDialog(onDismissRequest = { streamOpen = false }, containerColor = lerp(accent, Color.Black, 0.6f),
+        title = { Text("open network stream", color = White, fontWeight = FontWeight.Light) },
+        text = { StreamBox(accent) }, confirmButton = {
+            Text("close", color = White, modifier = Modifier.tilt { streamOpen = false }.padding(8.dp)) })
     Box(Modifier.fillMaxSize()) {
     TintBackground(accent)
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -594,6 +599,7 @@ fun HomeScreen(
             .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 18.dp)) {
             listOf(
                 "search" to { open(Screen.Search) },
+                "open network stream" to { streamOpen = true },
                 "shuffle all" to { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) },
                 "rescan library" to { vm.load(); Unit },
                 "settings" to { open(Screen.Settings) },
@@ -1647,6 +1653,10 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             }
         }
         if (vm.folders.value.isEmpty()) Text("no music folders found", color = Dim, fontSize = 15.sp)
+        val hiddenV = vm.hiddenItems.value
+        if (hiddenV.isNotEmpty()) SettingItem("hidden videos (${hiddenV.size})", "tap to show them all again") {
+            hiddenV.forEach { vm.hideVideo(it, false) }
+        }
         Text("video folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 14.dp))
         Text("tick the folders the videos tab should show", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
         LaunchedEffect(Unit) { if (vm.videoFolders.value.isEmpty()) vm.loadVideos() }

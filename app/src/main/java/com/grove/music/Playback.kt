@@ -192,26 +192,26 @@ class PlaybackService : MediaLibraryService() {
     // it out while the main player moves on to the next song and fades in — so the two overlap.
     private var fader: ExoPlayer? = null
 
-    private fun startCrossfade(player: ExoPlayer, prefs: Prefs) {
-        val f = ExoPlayer.Builder(this).setAudioAttributes(
-            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false
-        ).build().also { fader = it }
-        scope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(100)
-                val ms = prefs.crossfade * 1000L
-                if (ms <= 0 || !player.isPlaying || player.repeatMode == Player.REPEAT_MODE_ONE || !player.hasNextMediaItem()) continue
-                val dur = player.duration
-                if (dur <= 0 || dur < ms * 2 || dur - player.currentPosition > ms) continue
-                val item = player.currentMediaItem ?: continue
-                // get the tail ready on the fader first so there's no gap
-                f.setMediaItem(item, player.currentPosition); f.volume = 1f; f.playWhenReady = false; f.prepare()
-                var waited = 0
-                while (f.playbackState != Player.STATE_READY && waited < 1500) { kotlinx.coroutines.delay(20); waited += 20 }
-                if (f.playbackState != Player.STATE_READY) { f.stop(); continue }
-                f.seekTo(player.currentPosition); f.play()
-                player.volume = 0f
-                player.seekToNextMediaItem()
+    private var blendJob: kotlinx.coroutines.Job? = null
+    private lateinit var xPrefs: Prefs
+
+    /** fade the current song out on the side player while [skip] moves the main player on and fades in */
+    private fun blend(player: ExoPlayer, skip: () -> Unit) {
+        val f = fader
+        val ms = xPrefs.crossfade * 1000L
+        val item = player.currentMediaItem
+        if (f == null || ms <= 0 || !player.isPlaying || item == null) { skip(); return }
+        blendJob?.cancel(); f.stop(); player.volume = 1f
+        val from = player.currentPosition
+        blendJob = scope.launch {
+            f.setMediaItem(item, from); f.volume = 1f; f.playWhenReady = false; f.prepare()
+            var waited = 0
+            while (f.playbackState != Player.STATE_READY && waited < 600) { kotlinx.coroutines.delay(20); waited += 20 }
+            if (f.playbackState != Player.STATE_READY) { f.stop(); skip(); return@launch }
+            f.seekTo(player.currentPosition); f.play()
+            player.volume = 0f
+            skip()
+            try {
                 val steps = (ms / 50).coerceAtLeast(1)
                 for (i in 1..steps) {
                     kotlinx.coroutines.delay(50)
@@ -221,8 +221,37 @@ class PlaybackService : MediaLibraryService() {
                     f.volume = kotlin.math.cos(x * Math.PI / 2).toFloat()
                     player.volume = kotlin.math.sin(x * Math.PI / 2).toFloat()
                 }
-                f.stop(); f.clearMediaItems(); player.volume = 1f
+            } finally { f.stop(); f.clearMediaItems(); player.volume = 1f }
+        }
+    }
+
+    private fun startCrossfade(player: ExoPlayer, prefs: Prefs) {
+        xPrefs = prefs
+        fader = ExoPlayer.Builder(this).setAudioAttributes(
+            AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false
+        ).build()
+        // automatic: near the end of a song
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(100)
+                val ms = prefs.crossfade * 1000L
+                if (ms <= 0 || !player.isPlaying || blendJob?.isActive == true || player.repeatMode == Player.REPEAT_MODE_ONE || !player.hasNextMediaItem()) continue
+                val dur = player.duration
+                if (dur <= 0 || dur < ms * 2 || dur - player.currentPosition > ms) continue
+                blend(player) { player.seekToNextMediaItem() }
+                kotlinx.coroutines.delay(ms + 300)
             }
+        }
+    }
+
+    /** the player the app, notification and car control: skips go through [blend] so they crossfade too */
+    private fun xfade(p: ExoPlayer) = object : androidx.media3.common.ForwardingPlayer(p) {
+        override fun seekToNext() = blend(p) { p.seekToNext() }
+        override fun seekToNextMediaItem() = blend(p) { p.seekToNextMediaItem() }
+        override fun seekToPrevious() { if (p.currentPosition > 3000) p.seekToPrevious() else blend(p) { p.seekToPrevious() } }
+        override fun seekToPreviousMediaItem() = blend(p) { p.seekToPreviousMediaItem() }
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+            if (mediaItemIndex != p.currentMediaItemIndex) blend(p) { p.seekTo(mediaItemIndex, positionMs) } else p.seekTo(mediaItemIndex, positionMs)
         }
     }
 
@@ -295,7 +324,7 @@ class PlaybackService : MediaLibraryService() {
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
         ).build()
 
-        session = MediaLibrarySession.Builder(this, player, object : MediaLibrarySession.Callback {
+        session = MediaLibrarySession.Builder(this, xfade(player), object : MediaLibrarySession.Callback {
             override fun onConnect(s: MediaSession, c: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                 if (isCar(c)) { cars++; startCarLyrics(s.player) }
                 val cmds = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()

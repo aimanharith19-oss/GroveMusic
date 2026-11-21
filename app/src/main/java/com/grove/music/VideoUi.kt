@@ -123,7 +123,6 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     val others = all.filter { it.id !in found }
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
-        item { StreamBox(accent) }
         // favourites first
         val favs = vm.videoFavs.value
         if (favs.isNotEmpty()) item {
@@ -267,9 +266,9 @@ fun FavButton(vm: MusicViewModel, key: String) {
 
 /** "open network stream", like VLC: paste a link and play it; recent links are remembered */
 @Composable
-private fun StreamBox(accent: Color) {
+fun StreamBox(accent: Color) {
     val ctx = LocalContext.current
-    var open by remember { mutableStateOf(false) }
+    var open by remember { mutableStateOf(true) }
     var url by remember { mutableStateOf("") }
     var recent by remember { mutableStateOf(Prefs(ctx).streamUrls) }
     fun play(u: String) {
@@ -354,6 +353,9 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                     Text("play", color = W, fontSize = 18.sp, modifier = Modifier.background(accent)
                         .tilt { VideoActivity.open(ctx, v, t?.name ?: v.parsed.title) }.padding(horizontal = 26.dp, vertical = 10.dp))
                     FavButton(vm, "v:${v.id}")
+                    Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
+                        vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "hidden — show it again in settings", android.widget.Toast.LENGTH_SHORT).show()
+                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
                     if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
@@ -399,7 +401,12 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
             Column(Modifier.padding(horizontal = 20.dp)) {
                 t?.overview?.takeIf { it.isNotBlank() }?.let { Text(it, color = W.copy(alpha = 0.9f), fontSize = 15.sp, fontWeight = FontWeight.Light,
                     maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
-                Row(Modifier.padding(top = 12.dp)) { FavButton(vm, "show:$name") }
+                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FavButton(vm, "show:$name")
+                    Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
+                        vm.hideVideo("show:${name.lowercase()}"); android.widget.Toast.makeText(ctx, "hidden — show it again in settings", android.widget.Toast.LENGTH_SHORT).show()
+                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
+                }
                 CastRow(t?.cast ?: emptyList(), accent, open)
                 Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("episodes", accent, Modifier.weight(1f))

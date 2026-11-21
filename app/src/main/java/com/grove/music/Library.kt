@@ -229,7 +229,16 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         videoFolders.value = allVideos.groupingBy { it.folder }.eachCount().toList().sortedBy { it.first.lowercase() }
         applyVideos()
     }
-    private fun applyVideos() { val h = hiddenVideo.value; videos.value = allVideos.filter { it.folder !in h } }
+    val hiddenItems = mutableStateOf(prefs.hiddenVideos)
+    fun hideVideo(k: String, hide: Boolean = true) {
+        val h = if (hide) hiddenItems.value + k else hiddenItems.value - k
+        hiddenItems.value = h; prefs.hiddenVideos = h; applyVideos()
+    }
+    private fun applyVideos() {
+        val h = hiddenVideo.value; val items = hiddenItems.value
+        videos.value = allVideos.filter { v -> v.folder !in h && "v:${v.id}" !in items &&
+            !(v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items) }
+    }
     fun setVideoFolder(folder: String, show: Boolean) {
         val h = if (show) hiddenVideo.value - folder else hiddenVideo.value + folder
         hiddenVideo.value = h; prefs.hiddenVideoFolders = h; applyVideos()
@@ -281,6 +290,10 @@ class Prefs(ctx: Context) {
         get() = sp.getString("stream_urls", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("stream_urls", v.take(10).joinToString("\n")).apply()
     /** favourite videos ("v:<id>" or "show:<name>") */
+    /** videos/shows the user hid ("v:<id>" or "show:<name>") */
+    var hiddenVideos: Set<String>
+        get() = sp.getStringSet("hidden_videos", emptySet())!!.toSet()
+        set(v) = sp.edit().putStringSet("hidden_videos", v).apply()
     var videoFavs: List<String>
         get() = sp.getString("video_favs", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("video_favs", v.joinToString("\n")).apply()
