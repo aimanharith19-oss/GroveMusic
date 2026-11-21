@@ -76,6 +76,30 @@ object TagEditor {
 
     // ── write ───────────────────────────────────────────────────────────────
 
+    private fun edit(tmp: File, t: Tags, cover: ByteArray?, fresh: Boolean) {
+        var af = AudioFileIO.read(tmp)
+        if (fresh) { runCatching { AudioFileIO.delete(af) }; af = AudioFileIO.read(tmp) }
+        val tag = af.tagOrCreateAndSetDefault
+        fun set(k: FieldKey, v: String) { if (v.isBlank()) runCatching { tag.deleteField(k) } else tag.setField(k, v.trim()) }
+        set(FieldKey.TITLE, t.title); set(FieldKey.ARTIST, t.artist); set(FieldKey.ALBUM, t.album)
+        set(FieldKey.ALBUM_ARTIST, t.albumArtist); set(FieldKey.GENRE, t.genre); set(FieldKey.YEAR, t.year)
+        set(FieldKey.TRACK, t.track.filter { it.isDigit() })
+        if (cover != null) runCatching {
+            val mime = if (cover.size > 3 && cover[0] == 0x89.toByte()) "image/png" else "image/jpeg"
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(cover, 0, cover.size, o)
+            runCatching { tag.deleteArtworkField() }
+            when (tag) {
+                is FlacTag -> tag.setField(MetadataBlockDataPicture(cover, PictureTypes.DEFAULT_ID, mime, "", o.outWidth, o.outHeight, 24, 0))
+                else -> tag.setField(ArtworkFactory.getNew().apply {
+                    binaryData = cover; mimeType = mime; pictureType = PictureTypes.DEFAULT_ID
+                    width = o.outWidth; height = o.outHeight
+                })
+            }
+        }
+        af.commit()
+    }
+
     /** Copies the file, edits the copy, writes it back over the original. Caller must hold write access. */
     suspend fun write(ctx: Context, song: Song, t: Tags, cover: ByteArray?): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -84,27 +108,14 @@ object TagEditor {
             val tmp = File(dir, "song.$ext")
             ctx.contentResolver.openInputStream(song.uri)!!.use { i -> tmp.outputStream().use { i.copyTo(it) } }
 
-            val af = AudioFileIO.read(tmp)
-            val tag = af.tagOrCreateAndSetDefault
-            fun set(k: FieldKey, v: String) { if (v.isBlank()) runCatching { tag.deleteField(k) } else tag.setField(k, v.trim()) }
-            set(FieldKey.TITLE, t.title); set(FieldKey.ARTIST, t.artist); set(FieldKey.ALBUM, t.album)
-            set(FieldKey.ALBUM_ARTIST, t.albumArtist); set(FieldKey.GENRE, t.genre); set(FieldKey.YEAR, t.year)
-            set(FieldKey.TRACK, t.track.filter { it.isDigit() })
-            if (cover != null) runCatching {
-                val mime = if (cover.size > 3 && cover[0] == 0x89.toByte()) "image/png" else "image/jpeg"
-                val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(cover, 0, cover.size, o)
-                runCatching { tag.deleteArtworkField() }
-                when (tag) {
-                    // FLAC / Vorbis need an explicit picture block (the generic path uses desktop-only image code)
-                    is FlacTag -> tag.setField(MetadataBlockDataPicture(cover, PictureTypes.DEFAULT_ID, mime, "", o.outWidth, o.outHeight, 24, 0))
-                    else -> tag.setField(ArtworkFactory.getNew().apply {
-                        binaryData = cover; mimeType = mime; pictureType = PictureTypes.DEFAULT_ID
-                        width = o.outWidth; height = o.outHeight
-                    })
-                }
+            // first try editing the existing tag; some files carry a damaged tag ("wrong/incorrect offset") —
+            // then start again from a clean copy, strip the old tag and write a fresh one (keeping the old cover)
+            val first = runCatching { edit(tmp, t, cover, fresh = false) }
+            if (first.isFailure) {
+                val oldArt = runCatching { AudioFileIO.read(tmp).tag?.firstArtwork?.binaryData }.getOrNull()
+                ctx.contentResolver.openInputStream(song.uri)!!.use { i -> tmp.outputStream().use { i.copyTo(it) } }
+                edit(tmp, t, cover ?: oldArt, fresh = true)
             }
-            af.commit()
 
             ctx.contentResolver.openOutputStream(song.uri, "wt")!!.use { out -> tmp.inputStream().use { it.copyTo(out) } }
             dir.deleteRecursively()
