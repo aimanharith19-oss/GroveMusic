@@ -1,0 +1,21 @@
+package tachiyomi.domain.source.model
+
+/**
+ * SY-specific file
+ */
+data class FeedSavedSearch(
+    // Tag identifier, unique
+    val id: Long,
+
+    // Source for the saved search
+    val source: Long,
+
+    // If -1 then get latest, if set get the saved search
+    val savedSearch: Long?,
+
+    // If the feed is a global or source specific feed
+    val global: Boolean,
+
+    // Local index in global feed if it's a global one or in source feed if it's a source one
+    val feedOrder: Long,
+)

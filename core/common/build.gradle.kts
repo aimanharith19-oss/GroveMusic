@@ -1,0 +1,72 @@
+plugins {
+    alias(mihonx.plugins.android.library)
+    alias(mihonx.plugins.spotless)
+
+    alias(libs.plugins.metro)
+    alias(libs.plugins.kotlin.serialization)
+
+    id("com.github.ben-manes.versions")
+}
+
+android {
+    namespace = "eu.kanade.tachiyomi.core.common"
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll(
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+        )
+    }
+}
+
+dependencies {
+    implementation(projects.core.metro)
+    implementation(projects.i18n)
+    // SY -->
+    implementation(projects.i18nSy)
+    // SY <--
+
+    api(libs.logcat)
+
+    api(libs.rxJava)
+
+    api(libs.okhttp.core)
+    api(libs.okhttp.logging)
+    api(libs.okhttp.brotli)
+    api(libs.okhttp.dnsOverHttps)
+    api(libs.okio)
+
+    api(libs.apollo)
+
+    implementation(libs.image.decoder)
+
+    implementation(libs.unifile)
+    implementation(libs.archive)
+
+    api(libs.kotlinx.coroutines.core)
+    api(libs.kotlinx.serialization.json)
+    api(libs.kotlinx.serialization.jsonOkio)
+
+    api(libs.androidx.preference)
+    implementation(libs.androidx.webkit)
+
+    implementation(libs.jsoup)
+
+    // Sort
+    implementation(libs.natural.comparator)
+
+    // JavaScript engine
+    implementation(libs.quickJs)
+
+    testImplementation(libs.bundles.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
+
+    implementation(libs.metro.runtime)
+
+    // SY -->
+    implementation(sylibs.xlog)
+    implementation(libs.injekt)
+    // SY <--
+}

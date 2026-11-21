@@ -1,0 +1,315 @@
+package eu.kanade.presentation.more.settings.screen
+
+import android.content.Context
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.widget.BasePreferenceWidget
+import eu.kanade.presentation.more.settings.widget.PrefsHorizontalPadding
+import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.library.LibraryUpdateWorker
+import eu.kanade.tachiyomi.source.online.all.MangaDex
+import eu.kanade.tachiyomi.util.system.openInBrowser
+import eu.kanade.tachiyomi.util.system.toast
+import eu.kanade.tachiyomi.util.system.workManager
+import exh.md.utils.MdConstants
+import exh.md.utils.MdUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import logcat.LogPriority
+import mihon.app.di.appGraph
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Group
+import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.i18n.MR
+import tachiyomi.i18n.sy.SYMR
+import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.collectAsState
+import tachiyomi.presentation.core.util.secondaryItemAlpha
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+
+/**
+ * SY-specific file
+ */
+object SettingsMangadexScreen : SearchableSettings {
+
+    @ReadOnlyComposable
+    @Composable
+    override fun getTitleRes() = SYMR.strings.pref_category_mangadex
+
+    override fun isEnabled(): Boolean = runBlocking {
+        val appGraph = Injekt.get<Context>().appGraph
+        MdUtil.getEnabledMangaDexs(appGraph.sourcePreferences, appGraph.sourceManager).isNotEmpty()
+    }
+
+    @Composable
+    override fun getPreferences(): List<Preference> {
+        val context = LocalContext.current
+        val sourcePreferences: SourcePreferences = remember { context.appGraph.sourcePreferences }
+        val trackPreferences: TrackPreferences = remember { context.appGraph.trackPreferences }
+        val sourceManager: SourceManager = remember { context.appGraph.sourceManager }
+        val mdex = produceState<MangaDex?>(null) {
+            value = withContext(Dispatchers.IO) { MdUtil.getEnabledMangaDex(sourcePreferences, sourceManager) }
+        }.value ?: return emptyList()
+
+        return listOf(
+            loginPreference(mdex, trackPreferences),
+            preferredMangaDexId(sourcePreferences, sourceManager),
+            syncMangaDexIntoThis(sourcePreferences),
+            syncLibraryToMangaDex(),
+        )
+    }
+
+    @Composable
+    fun LogoutDialog(
+        onDismissRequest: () -> Unit,
+        onLogoutRequest: () -> Unit,
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            title = {
+                Text(text = stringResource(MR.strings.logout))
+            },
+            confirmButton = {
+                TextButton(onClick = onLogoutRequest) {
+                    Text(text = stringResource(MR.strings.logout))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+        )
+    }
+
+    @Composable
+    fun loginPreference(
+        mdex: MangaDex,
+        trackPreferences: TrackPreferences,
+    ): Preference.PreferenceItem.CustomPreference {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val loggedIn by remember { trackPreferences.trackToken(mdex.mdList) }.collectAsState()
+        var logoutDialogOpen by remember { mutableStateOf(false) }
+        if (logoutDialogOpen) {
+            LogoutDialog(
+                onDismissRequest = { logoutDialogOpen = false },
+                onLogoutRequest = {
+                    logoutDialogOpen = false
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            if (mdex.logout()) {
+                                withContext(Dispatchers.Main) {
+                                    context.toast(MR.strings.logout_success)
+                                }
+                            } else {
+                                withContext(Dispatchers.Main) {
+                                    context.toast(MR.strings.unknown_error)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            logcat(LogPriority.ERROR, e) { "Logout error" }
+                            withContext(Dispatchers.Main) {
+                                context.toast(MR.strings.unknown_error)
+                            }
+                        }
+                    }
+                },
+            )
+        }
+        return Preference.PreferenceItem.CustomPreference(
+            title = mdex.name + " Login",
+            content = {
+                BasePreferenceWidget(
+                    title = mdex.name + " Login",
+                    widget = {
+                        Icon(
+                            imageVector = MaterialSymbols.Rounded.Group,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .padding(start = 12.dp, end = PrefsHorizontalPadding)
+                                .secondaryItemAlpha(),
+                            tint = if (loggedIn.isNotEmpty()) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    },
+                    subcomponent = null,
+                    onClick = if (loggedIn.isNotEmpty()) {
+                        {
+                            logoutDialogOpen = true
+                        }
+                    } else {
+                        {
+                            context.openInBrowser(
+                                MdConstants.Login.authUrl(MdUtil.getPkceChallengeCode()),
+                                forceDefaultBrowser = true,
+                            )
+                        }
+                    },
+                )
+            },
+        )
+    }
+
+    @Composable
+    fun preferredMangaDexId(
+        sourcePreferences: SourcePreferences,
+        sourceManager: SourceManager,
+    ): Preference.PreferenceItem.ListPreference<String> {
+        return Preference.PreferenceItem.ListPreference(
+            preference = sourcePreferences.preferredMangaDexId,
+            title = stringResource(SYMR.strings.mangadex_preffered_source),
+            subtitle = stringResource(SYMR.strings.mangadex_preffered_source_summary),
+            entries = produceState(emptyMap<String, String>()) {
+                this.value = withContext(Dispatchers.IO) {
+                    MdUtil.getEnabledMangaDexs(sourcePreferences, sourceManager)
+                        .associate { it.id.toString() to it.toString() }
+                }
+            }.value,
+        )
+    }
+
+    @Composable
+    fun SyncMangaDexDialog(
+        onDismissRequest: () -> Unit,
+        onSelectionConfirmed: (List<String>) -> Unit,
+    ) {
+        val context = LocalContext.current
+        val items = remember {
+            context.resources.getStringArray(R.array.md_follows_options)
+                .drop(1)
+        }
+        val selection = remember {
+            List(items.size) { index ->
+                index == 0 || index == 5
+            }.toMutableStateList()
+        }
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            title = {
+                Text(text = stringResource(SYMR.strings.mangadex_sync_follows_to_library))
+            },
+            text = {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    items.forEachIndexed { index, followOption ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val checked = selection.getOrNull(index) ?: false
+                                    selection[index] = !checked
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = selection.getOrNull(index) ?: false,
+                                onCheckedChange = null,
+                            )
+
+                            Text(
+                                text = followOption,
+                                modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onSelectionConfirmed(items.filterIndexed { index, _ -> selection[index] }) }) {
+                    Text(text = stringResource(MR.strings.action_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+        )
+    }
+
+    @Composable
+    fun syncMangaDexIntoThis(sourcePreferences: SourcePreferences): Preference.PreferenceItem.TextPreference {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        var dialogOpen by remember { mutableStateOf(false) }
+        if (dialogOpen) {
+            SyncMangaDexDialog(
+                onDismissRequest = { dialogOpen = false },
+                onSelectionConfirmed = { items ->
+                    dialogOpen = false
+                    sourcePreferences.mangadexSyncToLibraryIndexes.set(
+                        List(items.size) { index -> (index + 1).toString() }.toSet(),
+                    )
+                    scope.launch {
+                        LibraryUpdateWorker.startNow(
+                            context.workManager,
+                            target = LibraryUpdateWorker.Target.SYNC_FOLLOWS,
+                        )
+                    }
+                },
+            )
+        }
+        return Preference.PreferenceItem.TextPreference(
+            title = stringResource(SYMR.strings.mangadex_sync_follows_to_library),
+            subtitle = stringResource(SYMR.strings.mangadex_sync_follows_to_library_summary),
+            onClick = { dialogOpen = true },
+        )
+    }
+
+    @Composable
+    fun syncLibraryToMangaDex(): Preference.PreferenceItem.TextPreference {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        return Preference.PreferenceItem.TextPreference(
+            title = stringResource(SYMR.strings.mangadex_push_favorites_to_mangadex),
+            subtitle = stringResource(SYMR.strings.mangadex_push_favorites_to_mangadex_summary),
+            onClick = {
+                scope.launch {
+                    LibraryUpdateWorker.startNow(
+                        context.workManager,
+                        target = LibraryUpdateWorker.Target.PUSH_FAVORITES,
+                    )
+                }
+            },
+        )
+    }
+}

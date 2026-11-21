@@ -1,0 +1,50 @@
+package tachiyomi.data.chapter
+
+import kotlinx.serialization.json.JsonObject
+import tachiyomi.domain.chapter.model.Chapter
+import kotlin.time.Instant
+
+/**
+ * SY-specific file
+ */
+object ChapterMapper {
+    fun mapChapter(
+        id: Long,
+        mangaId: Long,
+        remoteUrl: String,
+        remoteName: String,
+        remoteScanlator: String?,
+        remoteChapterNumber: Double,
+        remoteDateUpload: Instant?,
+        remoteOrder: Long,
+        remoteMemo: JsonObject,
+        userRead: Boolean,
+        userBookmark: Boolean,
+        userLastPageRead: Int,
+        stateDateFetch: Instant,
+        // SY -->
+        stateLastModifiedAt: Long,
+        stateVersion: Long,
+        @Suppress("UNUSED_PARAMETER")
+        stateIsSyncing: Long,
+        // SY <--
+    ): Chapter = Chapter(
+        id = id,
+        mangaId = mangaId,
+        read = userRead,
+        bookmark = userBookmark,
+        lastPageRead = userLastPageRead,
+        dateFetch = stateDateFetch,
+        sourceOrder = remoteOrder,
+        url = remoteUrl,
+        name = remoteName,
+        dateUpload = remoteDateUpload,
+        chapterNumber = remoteChapterNumber,
+        scanlator = remoteScanlator,
+        // SY -->
+        lastModifiedAt = stateLastModifiedAt,
+        version = stateVersion,
+        // SY <--
+        memo = remoteMemo,
+    )
+}

@@ -1,0 +1,22 @@
+package eu.kanade.domain.sync.models
+
+/**
+ * SY-specific file
+ */
+data class SyncSettings(
+    val libraryEntries: Boolean = true,
+    val categories: Boolean = true,
+    val chapters: Boolean = true,
+    val tracking: Boolean = true,
+    val history: Boolean = true,
+    val appSettings: Boolean = true,
+    val extensionStores: Boolean = true,
+    val sourceSettings: Boolean = true,
+    val privateSettings: Boolean = false,
+
+    // SY -->
+    val customInfo: Boolean = true,
+    val readEntries: Boolean = true,
+    val savedSearches: Boolean = true,
+    // SY <--
+)

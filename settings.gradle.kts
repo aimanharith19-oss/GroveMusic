@@ -1,7 +1,59 @@
-pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories { google(); mavenCentral() }
+pluginManagement {
+    includeBuild("gradle/build-logic")
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        maven(url = "https://www.jitpack.io")
+    }
 }
-rootProject.name = "GroveMusic"
+
+dependencyResolutionManagement {
+    versionCatalogs {
+        create("mihonx") {
+            from(files("gradle/mihon.versions.toml"))
+        }
+        create("sylibs") {
+            from(files("gradle/sy.versions.toml"))
+        }
+    }
+
+    @Suppress("UnstableApiUsage")
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+    @Suppress("UnstableApiUsage")
+    repositories {
+        google()
+        mavenCentral()
+        maven(url = "https://www.jitpack.io")
+    }
+}
+
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
+rootProject.name = "GroveMedia"
 include(":app")
+include(":media")
+include(":baseline-profile")
+include(":core-metadata")
+include(":core:archive")
+include(":core:common")
+include(":core:metro")
+include(":data")
+include(":domain")
+include(":i18n")
+// SY -->
+include(":i18n-sy")
+// SY <--
+include(":icons:custom-material-symbols")
+include(":icons:material-symbols")
+include(":icons:simple-icons")
+// SY -->
+include(":icons-sy:brands")
+include(":icons-sy:custom-material-symbols")
+include(":icons-sy:material-symbols")
+// SY <--
+include(":presentation-core")
+include(":presentation-widget")
+include(":source-api")
+include(":source-local")

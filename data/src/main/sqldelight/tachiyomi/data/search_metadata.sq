@@ -1,0 +1,39 @@
+ -- SY-specific file
+
+CREATE TABLE search_metadata (
+    manga_id INTEGER NOT NULL PRIMARY KEY,
+    uploader TEXT,
+    extra TEXT NOT NULL,
+    indexed_extra TEXT,
+    extra_version INTEGER NOT NULL,
+    FOREIGN KEY(manga_id) REFERENCES manga (id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX search_metadata_uploader_index ON search_metadata(uploader);
+CREATE INDEX search_metadata_indexed_extra_index ON search_metadata(indexed_extra);
+
+selectAll:
+SELECT manga_id, uploader, extra, indexed_extra, extra_version
+FROM search_metadata;
+
+selectByMangaId:
+SELECT manga_id, uploader, extra, indexed_extra, extra_version
+FROM search_metadata
+WHERE manga_id = :mangaId;
+
+upsert:
+INSERT INTO search_metadata(manga_id, uploader, extra, indexed_extra, extra_version)
+VALUES (:mangaId, :uploader, :extra, :indexedExtra, :extraVersion)
+ON CONFLICT(manga_id) DO UPDATE SET
+    uploader = excluded.uploader,
+    extra = excluded.extra,
+    indexed_extra = excluded.indexed_extra,
+    extra_version = excluded.extra_version;
+
+insert:
+INSERT INTO search_metadata(manga_id, uploader, extra, indexed_extra, extra_version)
+VALUES (:mangaId, :uploader, :extra, :indexedExtra, :extraVersion);
+
+deleteAll:
+DELETE FROM search_metadata;

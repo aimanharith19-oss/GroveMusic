@@ -1,0 +1,143 @@
+package eu.kanade.tachiyomi.ui.browse.source
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import dev.zacsweers.metrox.viewmodel.assistedMetroViewModel
+import eu.kanade.presentation.browse.SourceCategoriesDialog
+import eu.kanade.presentation.browse.SourceOptionsDialog
+import eu.kanade.presentation.browse.SourcesScreen
+import eu.kanade.presentation.components.AppBar
+import eu.kanade.presentation.components.TabContent
+import eu.kanade.tachiyomi.ui.browse.source.SourcesScreen.SmartSearchConfig
+import eu.kanade.tachiyomi.ui.browse.source.browse.BrowseSourceScreen
+import eu.kanade.tachiyomi.ui.browse.source.browse.BrowseSourceViewModel.Listing
+import eu.kanade.tachiyomi.ui.browse.source.feed.SourceFeedScreen
+import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
+import exh.ui.smartsearch.SmartSearchScreen
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.FilterList
+import mihon.icons.materialsymbols.rounded.TravelExplore
+import tachiyomi.i18n.MR
+import tachiyomi.i18n.sy.SYMR
+import tachiyomi.presentation.core.i18n.stringResource
+
+@Composable
+fun Screen.sourcesTab(
+    // SY -->
+    smartSearchConfig: SmartSearchConfig? = null,
+    // SY <--
+): TabContent {
+    val navigator = LocalNavigator.currentOrThrow
+    // SY -->
+    val viewModel =
+        assistedMetroViewModel<SourcesViewModel, SourcesViewModel.Factory> {
+            create(smartSearchConfig = smartSearchConfig)
+        }
+    // SY <--
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    return TabContent(
+        // SY -->
+        titleRes = when (smartSearchConfig == null) {
+            true -> MR.strings.label_sources
+            false -> SYMR.strings.find_in_another_source
+        },
+        actions = listOf(
+            AppBar.Action(
+                title = stringResource(MR.strings.action_global_search),
+                icon = MaterialSymbols.Rounded.TravelExplore,
+                onClick = { navigator.push(GlobalSearchScreen(smartSearchConfig?.origTitle ?: "")) },
+            ),
+        ).let {
+            when (smartSearchConfig) {
+                null -> {
+                    it.plus(
+                        AppBar.Action(
+                            title = stringResource(MR.strings.action_filter),
+                            icon = MaterialSymbols.Rounded.FilterList,
+                            onClick = { navigator.push(SourcesFilterScreen()) },
+                        ),
+                    )
+                }
+                else -> it
+            }
+        },
+        // SY <--
+        content = { contentPadding, snackbarHostState ->
+            SourcesScreen(
+                state = state,
+                contentPadding = contentPadding,
+                onClickItem = { source, listing ->
+                    // SY -->
+                    val screen = when {
+                        smartSearchConfig != null -> SmartSearchScreen(source.id, smartSearchConfig)
+                        listing == Listing.Popular && state.useNewSourceNavigation -> SourceFeedScreen(source.id)
+                        else -> BrowseSourceScreen(source.id, listing.query)
+                    }
+                    navigator.push(screen)
+                    // SY <--
+                },
+                onClickPin = viewModel::togglePin,
+                onLongClickItem = viewModel::showSourceDialog,
+            )
+
+            // SY -->
+            when (val dialog = state.dialog) {
+                is SourcesViewModel.Dialog.SourceLongClick -> {
+                    val source = dialog.source
+                    SourceOptionsDialog(
+                        source = source,
+                        onClickPin = {
+                            viewModel.togglePin(source)
+                            viewModel.closeDialog()
+                        },
+                        onClickDisable = {
+                            viewModel.toggleSource(source)
+                            viewModel.closeDialog()
+                        },
+                        onClickSetCategories = {
+                            viewModel.showSourceCategoriesDialog(source)
+                        }.takeIf { state.categories.isNotEmpty() },
+                        onClickToggleDataSaver = {
+                            viewModel.toggleExcludeFromDataSaver(source)
+                            viewModel.closeDialog()
+                        }.takeIf { state.dataSaverEnabled },
+                        onDismiss = viewModel::closeDialog,
+                    )
+                }
+                is SourcesViewModel.Dialog.SourceCategories -> {
+                    val source = dialog.source
+                    SourceCategoriesDialog(
+                        source = source,
+                        categories = state.categories,
+                        onClickCategories = { categories ->
+                            viewModel.setSourceCategories(source, categories)
+                            viewModel.closeDialog()
+                        },
+                        onDismissRequest = viewModel::closeDialog,
+                    )
+                }
+                null -> Unit
+            }
+            // SY <--
+
+            val internalErrString = stringResource(MR.strings.internal_error)
+            LaunchedEffect(Unit) {
+                viewModel.events.collectLatest { event ->
+                    when (event) {
+                        SourcesViewModel.Event.FailedFetchingSources -> {
+                            launch { snackbarHostState.showSnackbar(internalErrString) }
+                        }
+                    }
+                }
+            }
+        },
+    )
+}

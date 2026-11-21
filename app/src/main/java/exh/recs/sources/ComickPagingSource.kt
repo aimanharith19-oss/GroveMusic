@@ -1,0 +1,93 @@
+package exh.recs.sources
+
+import dev.icerock.moko.resources.StringResource
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.network.parseAs
+import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.model.MangasPage
+import eu.kanade.tachiyomi.source.model.SManga
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import tachiyomi.data.source.NoResultsException
+import tachiyomi.domain.manga.interactor.NetworkToLocalManga
+import tachiyomi.domain.manga.model.Manga
+import tachiyomi.i18n.sy.SYMR
+
+/**
+ * SY-specific file
+ */
+fun Source.isComickSource() = name == "Comick"
+
+class ComickPagingSource(
+    manga: Manga,
+    private val comickSource: Source,
+    networkToLocalManga: NetworkToLocalManga,
+    private val client: OkHttpClient,
+    private val json: Json,
+) : RecommendationPagingSource(manga, { comickSource }, networkToLocalManga) {
+
+    override val name: String
+        get() = "Comick"
+
+    override val category: StringResource
+        get() = SYMR.strings.community_recommendations
+
+    override val associatedSourceId: Long
+        get() = comickSource.id
+
+    private val thumbnailBaseUrl = "https://meo.comick.pictures/"
+
+    override suspend fun requestNextPage(source: Source?, currentPage: Int): MangasPage {
+        val mangasPage = coroutineScope {
+            val headers = Headers.Builder().apply {
+                add("Referer", "api.comick.fun/")
+                add("User-Agent", "Tachiyomi ${System.getProperty("http.agent")}")
+            }
+
+            // Comick extension populates the URL field with: '/comic/{hid}#'
+            val url = "https://api.comick.fun/v1.0${manga.url}".toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("tachiyomi", "true")
+                .build()
+
+            val request = GET(url, headers.build())
+
+            val data = with(json) {
+                client.newCall(request).awaitSuccess()
+                    .parseAs<JsonObject>()
+            }
+
+            val recs = data["comic"]!!
+                .jsonObject["recommendations"]!!
+                .jsonArray
+                .map { it.jsonObject["relates"]!! }
+                .map { it.jsonObject }
+
+            MangasPage(
+                recs.map { rec ->
+                    SManga(
+                        title = rec["title"]!!.jsonPrimitive.content,
+                        url = "/comic/${rec["hid"]!!.jsonPrimitive.content}#",
+                        thumbnail_url = thumbnailBaseUrl + rec["md_covers"]!!
+                            .jsonArray
+                            .map { it.jsonObject["b2key"]!!.jsonPrimitive.content }
+                            .first(),
+                        // Mark as uninitialized to force fetching missing metadata
+                        initialized = false,
+                    )
+                },
+                false,
+            )
+        }
+
+        return mangasPage.takeIf { it.mangas.isNotEmpty() } ?: throw NoResultsException()
+    }
+}

@@ -1,0 +1,123 @@
+package eu.kanade.presentation.reader
+
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.AdaptiveSheet
+import eu.kanade.presentation.manga.components.MangaChapterListItem
+import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.ui.reader.chapter.ReaderChapterItem
+import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsViewModel
+import eu.kanade.tachiyomi.util.lang.toRelativeString
+import exh.metadata.MetadataUtil
+import exh.source.isEhBasedManga
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.source.local.isLocal
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import kotlin.time.toJavaInstant
+
+/**
+ * SY-specific file
+ */
+@Composable
+fun ChapterListDialog(
+    onDismissRequest: () -> Unit,
+    viewModel: ReaderSettingsViewModel,
+    chapters: List<ReaderChapterItem>,
+    onClickChapter: (Chapter) -> Unit,
+    onBookmark: (Chapter) -> Unit,
+    dateRelativeTime: Boolean,
+    downloadManager: DownloadManager,
+) {
+    val manga by viewModel.mangaFlow.collectAsState()
+    val context = LocalContext.current
+    val state = rememberLazyListState(chapters.indexOfFirst { it.isCurrent }.coerceAtLeast(0))
+    val downloadQueueState by downloadManager.queueState.collectAsState()
+
+    AdaptiveSheet(
+        onDismissRequest = onDismissRequest,
+    ) {
+        LazyColumn(
+            state = state,
+            modifier = Modifier.heightIn(min = 200.dp, max = 500.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+        ) {
+            items(
+                items = chapters,
+                key = { "chapter-${it.chapter.id}" },
+            ) { chapterItem ->
+                val activeDownload = downloadQueueState.find { it.chapter.id == chapterItem.chapter.id }
+                val progress = activeDownload?.let {
+                    downloadManager.progressFlow()
+                        .filter { it.chapter.id == chapterItem.chapter.id }
+                        .map { it.progress }
+                        .collectAsState(0).value
+                } ?: 0
+                val downloaded = if (chapterItem.manga.isLocal()) {
+                    true
+                } else {
+                    downloadManager.isChapterDownloaded(
+                        chapterItem.chapter.name,
+                        chapterItem.chapter.scanlator,
+                        chapterItem.chapter.url,
+                        chapterItem.manga.ogTitle,
+                        chapterItem.manga.source,
+                    )
+                }
+                val downloadState = when {
+                    activeDownload != null -> activeDownload.status
+                    downloaded -> Download.State.DOWNLOADED
+                    else -> Download.State.NOT_DOWNLOADED
+                }
+                MangaChapterListItem(
+                    title = chapterItem.chapter.name,
+                    date = chapterItem.chapter.dateUpload
+                        ?.let {
+                            // SY -->
+                            if (manga?.isEhBasedManga() == true) {
+                                MetadataUtil.EX_DATE_FORMAT
+                                    .format(ZonedDateTime.ofInstant(it.toJavaInstant(), ZoneId.systemDefault()))
+                            } else {
+                                it.toLocalDateTime(TimeZone.currentSystemDefault())
+                                    .date
+                                    .toRelativeString(context, dateRelativeTime, chapterItem.dateFormat)
+                            }
+                            // SY <--
+                        },
+                    readProgress = null,
+                    scanlator = chapterItem.chapter.scanlator,
+                    sourceName = null,
+                    read = chapterItem.chapter.read,
+                    bookmark = chapterItem.chapter.bookmark,
+                    selected = false,
+                    downloadIndicatorEnabled = false,
+                    downloadStateProvider = { downloadState },
+                    downloadProgressProvider = { progress },
+                    chapterSwipeStartAction = LibraryPreferences.ChapterSwipeAction.ToggleBookmark,
+                    chapterSwipeEndAction = LibraryPreferences.ChapterSwipeAction.ToggleBookmark,
+                    onLongClick = { /*TODO*/ },
+                    onClick = { onClickChapter(chapterItem.chapter) },
+                    onDownloadClick = null,
+                    onChapterSwipe = {
+                        onBookmark(chapterItem.chapter)
+                    },
+                )
+            }
+        }
+    }
+}

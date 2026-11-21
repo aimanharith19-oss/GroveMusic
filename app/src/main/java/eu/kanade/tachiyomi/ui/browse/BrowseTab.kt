@@ -1,0 +1,110 @@
+package eu.kanade.tachiyomi.ui.browse
+
+import androidx.compose.animation.graphics.res.animatedVectorResource
+import androidx.compose.animation.graphics.vector.AnimatedImageVector
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cafe.adriel.voyager.navigator.Navigator
+import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
+import cafe.adriel.voyager.navigator.tab.TabOptions
+import dev.zacsweers.metrox.viewmodel.metroViewModel
+import eu.kanade.core.preference.asState
+import eu.kanade.presentation.components.TabbedScreen
+import eu.kanade.presentation.util.Tab
+import eu.kanade.presentation.util.rememberAnimatedVectorPainter
+import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.ui.browse.feed.FeedViewModel
+import eu.kanade.tachiyomi.ui.browse.feed.feedTab
+import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
+import eu.kanade.tachiyomi.ui.browse.source.sourcesTab
+import eu.kanade.tachiyomi.ui.main.MainActivity
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
+import mihon.app.di.appGraph
+import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.i18n.stringResource
+
+data object BrowseTab : Tab {
+
+    override val options: TabOptions
+        @Composable
+        get() {
+            val isSelected = LocalTabNavigator.current.current.key == key
+            val enter = AnimatedImageVector.animatedVectorResource(R.drawable.animated_browse_enter)
+            val exit = AnimatedImageVector.animatedVectorResource(R.drawable.animated_browse_exit)
+            return TabOptions(
+                index = 3u,
+                title = stringResource(MR.strings.browse),
+                icon = rememberAnimatedVectorPainter(enter, exit, isSelected),
+            )
+        }
+
+    override suspend fun onReselect(navigator: Navigator) {
+        navigator.push(GlobalSearchScreen())
+    }
+
+    private val switchToExtensionTabChannel = Channel<Unit>(1, BufferOverflow.DROP_OLDEST)
+
+    fun showExtension() {
+        switchToExtensionTabChannel.trySend(Unit)
+    }
+
+    // SY -->
+    private val feedRefreshChannel = Channel<Unit>(Channel.CONFLATED)
+    private var feedRefreshNotified = false
+
+    /**
+     * Notify the feed to refresh on browse-tab selection
+     */
+    fun onBrowseTabSelected(isSelected: Boolean) {
+        if (isSelected) {
+            if (!feedRefreshNotified) {
+                feedRefreshNotified = true
+                feedRefreshChannel.trySend(Unit)
+            }
+        } else {
+            feedRefreshNotified = false
+        }
+    }
+    // SY <--
+
+    @Composable
+    override fun Content() {
+        val context = LocalContext.current
+        // SY -->
+        val scope = rememberCoroutineScope()
+        val hideFeedTab by remember { context.appGraph.uiPreferences.hideFeedTab.asState(scope) }
+        val feedTabInFront by remember { context.appGraph.uiPreferences.feedTabInFront.asState(scope) }
+        // SY <--
+
+        // SY -->
+        // Grovebook: feed removed; only sources
+        val tabs = listOf(sourcesTab())
+        // SY <--
+
+        val state = rememberPagerState { tabs.size }
+
+        TabbedScreen(
+            titleRes = MR.strings.browse,
+            tabs = tabs,
+            state = state,
+        )
+        val navigator = cafe.adriel.voyager.navigator.LocalNavigator.current
+        LaunchedEffect(Unit) {
+            switchToExtensionTabChannel.receiveAsFlow()
+                .collectLatest { navigator?.push(ExtensionsScreen()) }
+        }
+
+        LaunchedEffect(Unit) {
+            (context as? MainActivity)?.ready = true
+        }
+    }
+}

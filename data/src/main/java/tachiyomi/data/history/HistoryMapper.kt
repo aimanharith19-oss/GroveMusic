@@ -1,0 +1,62 @@
+package tachiyomi.data.history
+
+import tachiyomi.domain.history.model.History
+import tachiyomi.domain.history.model.HistoryWithRelations
+import tachiyomi.domain.manga.model.MangaCover
+import kotlin.time.Instant
+
+object HistoryMapper {
+
+    fun mapHistory(
+        id: Long,
+        chapterId: Long,
+        readAt: Instant?,
+        readDuration: Long,
+    ): History = History(
+        id = id,
+        chapterId = chapterId,
+        readAt = readAt,
+        readDuration = readDuration,
+    )
+
+    fun mapHistoryWithRelations(
+        historyId: Long,
+        mangaId: Long,
+        chapterId: Long,
+        title: String,
+        thumbnailUrl: String?,
+        sourceId: Long,
+        isFavorite: Boolean,
+        coverLastModified: Instant?,
+        chapterNumber: Double,
+        readAt: Instant?,
+        readDuration: Long,
+        // SY -->
+        userTitle: String?,
+        userThumbnailUrl: String?,
+        // SY <--
+    ): HistoryWithRelations {
+        return HistoryWithRelations(
+            id = historyId,
+            chapterId = chapterId,
+            mangaId = mangaId,
+            // SY -->
+            ogTitle = title,
+            userTitle = userTitle,
+            // SY <--
+            chapterNumber = chapterNumber,
+            readAt = readAt,
+            readDuration = readDuration,
+            coverData = MangaCover(
+                mangaId = mangaId,
+                sourceId = sourceId,
+                isMangaFavorite = isFavorite,
+                // SY -->
+                ogUrl = thumbnailUrl,
+                userThumbnailUrl = userThumbnailUrl,
+                // SY <--
+                lastModified = coverLastModified,
+            ),
+        )
+    }
+}

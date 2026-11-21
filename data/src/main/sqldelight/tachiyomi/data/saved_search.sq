@@ -1,0 +1,50 @@
+ -- SY-specific file
+
+CREATE TABLE saved_search(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    query TEXT,
+    filters_json TEXT
+);
+
+selectBySource:
+SELECT _id, source, name, query, filters_json
+FROM saved_search
+WHERE source = :sourceId;
+
+selectAll:
+SELECT _id, source, name, query, filters_json
+FROM saved_search;
+
+selectById:
+SELECT _id, source, name, query, filters_json
+FROM saved_search
+WHERE _id = :id;
+
+selectNamesAndSources:
+SELECT source, name
+FROM saved_search;
+
+insert:
+INSERT INTO saved_search(source, name, query, filters_json)
+VALUES (:source, :name, :query, :filtersJson);
+
+insertReturningId:
+INSERT INTO saved_search(source, name, query, filters_json)
+VALUES (:source, :name, :query, :filtersJson)
+RETURNING _id;
+
+findId:
+SELECT _id
+FROM saved_search
+WHERE source = :source
+AND name = :name
+LIMIT 1;
+
+deleteById:
+DELETE FROM saved_search
+WHERE _id = :id;
+
+deleteAll:
+DELETE FROM saved_search;
