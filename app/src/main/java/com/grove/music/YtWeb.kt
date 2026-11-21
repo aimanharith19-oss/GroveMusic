@@ -39,9 +39,7 @@ object YtWeb {
     private fun css(): String {
         val a = String.format("#%06X", 0xFFFFFF and accent)
         return """
-        html, body, ytmusic-app, ytmusic-app-layout, #layout, ytmusic-browse-response, ytmusic-player-page,
-        #nav-bar-background, ytmusic-nav-bar, ytmusic-player-bar, ytmusic-pivot-bar-renderer, #player-bar-background,
-        tp-yt-app-drawer #contentContainer, ytmusic-guide-renderer { background: #000 !important; }
+        html, body, ytmusic-app, #nav-bar-background, ytmusic-player-bar, #player-bar-background { background-color: #000 !important; }
         #nav-bar-background, ytmusic-pivot-bar-renderer { border: none !important; }
         * { font-family: 'Segoe UI', 'Roboto', sans-serif !important; }
         h1, h2, .title, yt-formatted-string.title { font-weight: 300 !important; letter-spacing: -0.5px; }
