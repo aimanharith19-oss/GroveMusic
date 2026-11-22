@@ -131,6 +131,18 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
 
     fun song(id: String?): Song? = id?.let { byId[it] }
 
+    /** music + videos + books (re-read folders) + new comic chapters */
+    fun rescanAll(ctx: android.content.Context) {
+        // ask Android to index newly copied files first
+        val roots = listOf(android.os.Environment.DIRECTORY_MUSIC, android.os.Environment.DIRECTORY_MOVIES, android.os.Environment.DIRECTORY_DOWNLOADS)
+            .map { android.os.Environment.getExternalStoragePublicDirectory(it).absolutePath }
+        runCatching { android.media.MediaScannerConnection.scanFile(ctx, roots.toTypedArray(), null) { _, _ -> } }
+        load(); loadVideos()
+        BookBridge.tick.intValue++
+        BookBridge.rescan?.invoke(ctx)
+        android.widget.Toast.makeText(ctx, "rescanning music, videos and books… new comic chapters are being checked", android.widget.Toast.LENGTH_LONG).show()
+    }
+
     fun load() = viewModelScope.launch {
         loading.value = true
         all = withContext(Dispatchers.IO) { runCatching { MusicRepository.query(getApplication()) }.getOrDefault(emptyList()) }

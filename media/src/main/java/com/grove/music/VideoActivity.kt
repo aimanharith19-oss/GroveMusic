@@ -58,9 +58,19 @@ class VideoActivity : ComponentActivity() {
     private var session: android.media.session.MediaSession? = null
     var thumb: android.graphics.Bitmap? = null
     fun titleText() = title.value
-    fun isPlaying() = ::player.isInitialized && player.isPlaying
+    /** what the user asked for; VLC only reports the real state a moment later */
+    private var want: Boolean? = null
+    private fun playingNow() = want ?: player.isPlaying
+    fun isPlaying() = ::player.isInitialized && playingNow()
     fun sessionToken() = session?.sessionToken
-    fun toggle() { if (player.isPlaying) player.pause() else player.play(); refresh() }
+    fun toggle() {
+        val play = !playingNow()
+        want = play
+        if (play) player.play() else player.pause()
+        refresh()
+        // once VLC has switched, go back to its real state
+        android.os.Handler(mainLooper).postDelayed({ if (player.isPlaying == play) { want = null }; refresh() }, 700)
+    }
     fun skip(ms: Long) { player.time = (player.time + ms).coerceAtLeast(0); refresh() }
 
     /** audio only: keep the sound going in the background with no picture */
@@ -72,8 +82,8 @@ class VideoActivity : ComponentActivity() {
                 android.media.session.PlaybackState.ACTION_PLAY_PAUSE or android.media.session.PlaybackState.ACTION_SEEK_TO or
                 android.media.session.PlaybackState.ACTION_FAST_FORWARD or android.media.session.PlaybackState.ACTION_REWIND or
                 android.media.session.PlaybackState.ACTION_STOP)
-            .setState(if (player.isPlaying) android.media.session.PlaybackState.STATE_PLAYING else android.media.session.PlaybackState.STATE_PAUSED,
-                player.time, if (player.isPlaying) 1f else 0f).build()
+            .setState(if (playingNow()) android.media.session.PlaybackState.STATE_PLAYING else android.media.session.PlaybackState.STATE_PAUSED,
+                player.time, if (playingNow()) 1f else 0f).build()
         session?.setPlaybackState(st)
         session?.setMetadata(android.media.MediaMetadata.Builder()
             .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, title.value)
@@ -99,7 +109,7 @@ class VideoActivity : ComponentActivity() {
         fun ra(icon: Int, t: String, action: String) = android.app.RemoteAction(android.graphics.drawable.Icon.createWithResource(this, icon), t, t,
             android.app.PendingIntent.getBroadcast(this, action.hashCode(), Intent(action).setPackage(packageName), android.app.PendingIntent.FLAG_IMMUTABLE))
         val b = PictureInPictureParams.Builder().setActions(listOf(
-            ra(if (player.isPlaying) R.drawable.ic_n_pause else R.drawable.ic_n_play, "Play/pause", VideoService.ACT_TOGGLE),
+            ra(if (playingNow()) R.drawable.ic_n_pause else R.drawable.ic_n_play, if (playingNow()) "Pause" else "Play", VideoService.ACT_TOGGLE),
             ra(R.drawable.ic_n_headphones, "Audio only", ACT_AUDIO)))
         runCatching { setPictureInPictureParams(b.build()) }
     }
@@ -138,8 +148,8 @@ class VideoActivity : ComponentActivity() {
         player = MediaPlayer(lib)
         session = android.media.session.MediaSession(this, "GroveVideo").apply {
             setCallback(object : android.media.session.MediaSession.Callback() {
-                override fun onPlay() { player.play(); refresh() }
-                override fun onPause() { player.pause(); refresh() }
+                override fun onPlay() { if (!playingNow()) toggle() }
+                override fun onPause() { if (playingNow()) toggle() }
                 override fun onSeekTo(pos: Long) { player.time = pos; refresh() }
                 override fun onFastForward() = skip(10_000)
                 override fun onRewind() = skip(-10_000)

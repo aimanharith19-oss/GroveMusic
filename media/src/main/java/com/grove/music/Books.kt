@@ -11,6 +11,10 @@ import java.util.Calendar
 object BookBridge {
     var backup: ((Context, Uri) -> Unit)? = null
     var restore: ((Context, Uri) -> Unit)? = null
+    /** check every comic in the library for new chapters */
+    var rescan: ((Context) -> Unit)? = null
+    /** bumps when a full rescan is asked for, so the book tab re-reads its folders */
+    val tick = androidx.compose.runtime.mutableIntStateOf(0)
     /** draws a Grove Book screen ("library", "updates", "history", "browse", "more", "book") inside GroveMedia */
     var embed: (@androidx.compose.runtime.Composable (String, androidx.compose.ui.Modifier) -> Unit)? = null
     /** true while a Grove Book screen has opened something on top (a book, settings…) — GroveMedia then hides its headers */

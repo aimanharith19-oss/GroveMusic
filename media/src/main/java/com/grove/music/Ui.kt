@@ -632,7 +632,7 @@ fun HomeScreen(
                 }
                 "videos" -> VideosPage(vm, accent, open)
                 "comics" -> ComicsPage(accent)
-                "book" -> BookBridge.embed?.invoke("book", Modifier.fillMaxSize())
+                "book" -> key(BookBridge.tick.intValue) { BookBridge.embed?.invoke("book", Modifier.fillMaxSize()) }
                 "stats" -> StatsPage(vm, accent)
             }
         }
@@ -661,7 +661,7 @@ fun HomeScreen(
                 "search" to { open(Screen.Search) },
                 "open network stream" to { streamOpen = true },
                 "shuffle all" to { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) },
-                "rescan library" to { vm.load(); Unit },
+                "rescan library" to { vm.rescanAll(cctx); Unit },
                 "songs with no info" to { open(Screen.NoInfo) },
                 "settings" to { open(Screen.Settings) },
             ).forEach { (label, act) ->
@@ -2047,7 +2047,7 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
             Switch(vm.preferFlac.value, { vm.setPreferFlac(it) },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
         }
-        SettingItem("rescan library", "look for new music on this phone", rescan)
+        SettingItem("rescan library", "look for new music, videos and books, and new comic chapters") { vm.rescanAll(ctx) }
         Text("hidden folders", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 10.dp))
         Text("untick a folder to hide its songs from your collection", color = Dim, fontSize = 14.sp, modifier = Modifier.padding(bottom = 4.dp))
         vm.folders.value.forEach { (f, n) ->
@@ -2118,6 +2118,8 @@ private val CHANGES = listOf(
     "widgets" to "pill, wide and square home screen widgets plus a quick settings play tile",
     "icon styles" to "colour, neon, mono and glass app icons",
     "now playing" to "heart stays on the right, title uses the full width",
+    "rescan" to "rescan library now covers music, videos, books and new comic chapters",
+    "picture-in-picture" to "play / pause button in the floating video updates right away",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )

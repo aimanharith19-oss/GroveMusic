@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi
 
 import mihon.app.di.appGraph
+import kotlinx.coroutines.launch
 
 import android.annotation.SuppressLint
 import android.app.Application
@@ -161,6 +162,11 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 while (c.next().value) out += Array(cols) { i -> c.getString(i) }
                 app.cash.sqldelight.db.QueryResult.Value(out)
             }, 0).value
+        }
+        com.grove.music.BookBridge.rescan = { ctx ->
+            kotlinx.coroutines.MainScope().launch {
+                runCatching { eu.kanade.tachiyomi.data.library.LibraryUpdateWorker.startNow(androidx.work.WorkManager.getInstance(ctx)) }
+            }
         }
         com.grove.music.BookBridge.restore = { ctx, uri ->
             eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker.start(
