@@ -334,7 +334,7 @@ data object OfflineTab : Tab {
             AlertDialog(
                 onDismissRequest = { removeAsk = null },
                 title = { Text("Remove folder?") },
-                text = { Text("Books stay on your phone; Grovebook just stops showing this folder.") },
+                text = { Text("Books stay on your phone; GroveMedia just stops showing this folder.") },
                 confirmButton = {
                     TextButton(onClick = {
                         OfflineLibrary.removeFolder(context, uri)

@@ -12,11 +12,11 @@ jobs:
         with: { distribution: temurin, java-version: 25 }
       - uses: gradle/actions/setup-gradle@v5
       - run: chmod +x gradlew && ./gradlew assembleFoss --no-daemon --stacktrace -Dorg.gradle.internal.http.connectionTimeout=60000 -Dorg.gradle.internal.http.socketTimeout=60000 -Dorg.gradle.internal.repository.max.retries=5
-      - run: cp $(ls app/build/outputs/apk/foss/*arm64*.apk | head -1) GroveMusic.apk
+      - run: cp $(ls app/build/outputs/apk/foss/*arm64*.apk | head -1) GroveMedia.apk
       - uses: actions/upload-artifact@v4
-        with: { name: GroveMedia-apk, path: GroveMusic.apk }
+        with: { name: GroveMedia-apk, path: GroveMedia.apk }
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: GroveMedia build ${{ github.run_number }}
-          files: GroveMusic.apk
+          files: GroveMedia.apk

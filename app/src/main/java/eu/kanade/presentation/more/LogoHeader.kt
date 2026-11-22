@@ -39,7 +39,7 @@ fun LogoHeader(
             )
         }
         androidx.compose.material3.Text(
-            text = "Grovebook",
+            text = "GroveMedia",
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(bottom = 20.dp),

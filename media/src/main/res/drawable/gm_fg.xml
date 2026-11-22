@@ -1,18 +1,12 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <group android:translateX="16.80" android:translateY="16.50" android:scaleX="0.7" android:scaleY="0.7">
-        <path android:fillColor="#FF17D47F" android:pathData="M35.58,23.01Q23,16 23.00,30.40L23.00,79.60Q23,94 35.58,86.99L80.42,62.01Q93,55 80.42,47.99Z" />
-        <group>
-            <clip-path android:pathData="M35.58,23.01Q23,16 23.00,30.40L23.00,79.60Q23,94 35.58,86.99L80.42,62.01Q93,55 80.42,47.99Z" />
-            <path android:fillColor="#FF0DC377" android:pathData="M-21,19 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0z" />
-            <path android:fillColor="#FF04B06F" android:pathData="M-6,19 a31,31 0 1,0 62,0 a31,31 0 1,0 -62,0z" />
-        </group>
-        <!-- film perforations: music + video -->
-        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,33h5v5h-5z" />
-        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,45.5h5v5h-5z" />
-        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,58h5v5h-5z" />
-        <path android:fillColor="#E6FFFFFF" android:pathData="M31.5,70.5h5v5h-5z" />
-        <path android:pathData="M56.5,68 V30 C56.5,30 57.5,37 63,40.5 C67,43 67.5,48 66,51" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" android:strokeLineCap="round" android:strokeLineJoin="round" />
-        <path android:pathData="M49,60.5 a7.5,7.5 0 1,0 0.01,0 z" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" />
+    <!-- GroveMedia: a G holding a book (comics & books), a note (music) and play (video) -->
+    <group android:translateX="12.75" android:translateY="12.75" android:scaleX="0.75" android:scaleY="0.75">
+        <path android:pathData="M87,35 A36,36 0 1,0 87,75" android:strokeColor="#FFFFFFFF" android:strokeWidth="12" android:strokeLineCap="round" />
+        <path android:fillColor="#FFF0A30A" android:pathData="M63,61 Q75,56 75,61 Q75,56 87,61 V77 Q75,72 75,77 Q75,72 63,77 Z" />
+        <path android:fillColor="#FF17D47F" android:pathData="M41,45 L57,55 L41,65 Z" />
+        <path android:pathData="M65,51 V37 L75,34 V46" android:strokeColor="#FF1BA1E2" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:fillColor="#FF1BA1E2" android:pathData="M58.5,52 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0z" />
+        <path android:fillColor="#FF1BA1E2" android:pathData="M68.5,47 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0z" />
     </group>
 </vector>

@@ -2073,6 +2073,7 @@ private val CHANGES = listOf(
     "speed dial" to "pin songs, albums, artists and playlists to home",
     "android auto" to "browse playlists, mixes and songs in the car",
     "backup" to "back up and restore your comics library, sources and settings",
+    "new look" to "new GroveMedia icon and name everywhere — installer, app info, notifications",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
 
@@ -2082,7 +2083,10 @@ fun AboutDialog(ver: String, accent: Color, onDismiss: () -> Unit) {
         title = { Column { Text("GroveMedia", color = White, fontSize = 30.sp, fontWeight = FontWeight.Light); Text("version $ver", color = Dim, fontSize = 13.sp) } },
         text = {
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                item { SectionLabel("what's new", accent) }
+                item {
+                    Text("made by Harith · built with Claude by Anthropic", color = White, fontSize = 13.sp, modifier = Modifier.padding(bottom = 10.dp))
+                    SectionLabel("what's new", accent)
+                }
                 itemsIndexed(CHANGES) { _, (t, d) ->
                     Column(Modifier.padding(vertical = 5.dp)) {
                         Text(t, color = accent, fontSize = 15.sp)

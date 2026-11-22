@@ -329,7 +329,7 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val root = MediaItem.Builder().setMediaId(ROOT).setMediaMetadata(
-            MediaMetadata.Builder().setTitle("Grove Music").setIsBrowsable(true).setIsPlayable(false)
+            MediaMetadata.Builder().setTitle("GroveMedia").setIsBrowsable(true).setIsPlayable(false)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED).build()
         ).build()
 
