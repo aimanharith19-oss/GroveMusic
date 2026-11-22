@@ -19,6 +19,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -363,7 +365,17 @@ class VideoActivity : ComponentActivity() {
         val pip by inPip
         LaunchedEffect(Unit) { while (true) { pos = pTime; len = pLen; playing = pPlaying; if (playing) watched += 250; delay(250) } }
         LaunchedEffect(show, playing) { if (show && playing) { delay(3500); show = false } }
-        Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
+        val swipeMini = remember { Prefs(this@VideoActivity).swipeMini }
+        var downY by remember { mutableFloatStateOf(0f) }
+        Box(Modifier.fillMaxSize().background(Color.Black).graphicsLayer {
+            translationY = downY; val f = (downY / size.height).coerceIn(0f, 1f); scaleX = 1f - f * 0.3f; scaleY = 1f - f * 0.3f
+        }.pointerInput(swipeMini) {
+            if (!swipeMini) return@pointerInput
+            // swipe down = mini player (picture-in-picture over GroveMedia), like YouTube
+            detectVerticalDragGestures(onDragEnd = {
+                if (downY > size.height * 0.18f) { downY = 0f; enterPip() } else downY = 0f
+            }, onDragCancel = { downY = 0f }) { ch, d -> ch.consume(); downY = (downY + d).coerceAtLeast(0f) }
+        }.pointerInput(Unit) {
             detectTapGestures(onTap = { show = !show }, onDoubleTap = { o ->
                 pTime = (pTime + if (o.x > size.width / 2) 10_000 else -10_000).coerceAtLeast(0)
             })

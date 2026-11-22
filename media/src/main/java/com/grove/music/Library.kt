@@ -341,6 +341,9 @@ class Prefs(ctx: Context) {
     var videoEngine: String
         get() = sp.getString("video_engine", "auto") ?: "auto"
         set(v) = sp.edit().putString("video_engine", v).apply()
+    var swipeMini: Boolean
+        get() = sp.getBoolean("swipe_mini", true)
+        set(v) = sp.edit().putBoolean("swipe_mini", v).apply()
     var iconStyle: String
         get() = sp.getString("icon_style", "colour") ?: "colour"
         set(v) = sp.edit().putString("icon_style", v).apply()

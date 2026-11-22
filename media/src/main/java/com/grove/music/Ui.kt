@@ -2037,6 +2037,8 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
         }
         Text("auto: 4K / 8K videos use the phone's hardware decoder (HEVC, AV1, 10-bit, HDR), everything else uses VLC. VLC plays the most formats; hardware handles the biggest videos.",
             color = Dim, fontSize = 12.sp)
+        Toggle("swipe down to mini player", "swipe the now playing screen or a video down to shrink it, like the YouTube app (videos float in picture-in-picture)",
+            prefs.swipeMini) { prefs.swipeMini = it }
         // ── icon style
         SectionLabel("icon style", accent, Modifier.padding(top = 18.dp))
         var iconStyle by remember { mutableStateOf(prefs.iconStyle) }
@@ -2141,6 +2143,7 @@ private val CHANGES = listOf(
     "hide" to "hide a video or show from its ••• menu, next to rename file",
     "every format" to "plays everything VLC plays (mkv, avi, rmvb, vob, iso, ts, webm, wmv…); optional all-files access finds unlisted videos",
     "car lyrics" to "Android Auto shows the line being sung big, with the next line under it",
+    "mini player" to "swipe now playing or a video down to shrink it, like YouTube",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
@@ -2318,7 +2321,24 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
     val inf = rememberInfiniteTransition(label = "kb")
     val kb by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse), label = "kb")
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(deep).pointerInput(Unit) {
+    // swipe down = shrink to the mini player (like YouTube)
+    val down = remember { Animatable(0f) }
+    val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    val swipeMini = remember { prefs.swipeMini }
+    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer {
+        translationY = down.value; val f = (down.value / size.height).coerceIn(0f, 1f)
+        scaleX = 1f - f * 0.25f; scaleY = 1f - f * 0.25f; alpha = 1f - f * 0.6f
+        transformOrigin = TransformOrigin(0.5f, 1f)
+    }.background(deep).pointerInput(swipeMini) {
+        if (!swipeMini) return@pointerInput
+        detectVerticalDragGestures(
+            onDragEnd = {
+                if (down.value > size.height * 0.2f) scope.launch { down.animateTo(size.height.toFloat(), tween(220)); backDispatcher?.onBackPressed() }
+                else scope.launch { down.animateTo(0f, tween(300, easing = WpEase)) }
+            },
+            onDragCancel = { scope.launch { down.animateTo(0f, tween(300, easing = WpEase)) } }
+        ) { ch, d -> ch.consume(); scope.launch { down.snapTo((down.value + d).coerceAtLeast(0f)) } }
+    }.pointerInput(Unit) {
         val threshold = size.width * 0.22f
         detectHorizontalDragGestures(
             onDragEnd = {
