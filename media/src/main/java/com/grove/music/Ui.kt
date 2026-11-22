@@ -557,6 +557,21 @@ fun HomeScreen(
     val pages = listOf("home", "music", "videos", "comics", "book", "stats")
     val pager = rememberPagerState { pages.size }
     val deep = BookBridge.deep.values.any { it }
+    val cctx = LocalContext.current
+    var crash by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { crash = withContext(Dispatchers.IO) { CrashReport.pending(cctx) } }
+    crash?.let { c ->
+        AlertDialog(onDismissRequest = { crash = null }, containerColor = lerp(accent, Color.Black, 0.6f),
+            title = { Text("GroveMedia closed unexpectedly", color = White, fontSize = 20.sp) },
+            text = { LazyColumn(Modifier.heightIn(max = 360.dp)) { item { Text(c, color = White, fontSize = 11.sp) } } },
+            confirmButton = {
+                Text("share", color = White, modifier = Modifier.tilt {
+                    cctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, c), "share crash report"))
+                }.padding(8.dp))
+            },
+            dismissButton = { Text("close", color = White, modifier = Modifier.tilt { crash = null }.padding(8.dp)) })
+    }
     val scope = rememberCoroutineScope()
     val songs = vm.songs.value
     val play: (List<Song>, Int) -> Unit = { l, i -> conn.playSongs(l, i); open(Screen.Playing) }
@@ -2030,10 +2045,53 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 }
             }
         }
-        SettingItem("about", "Grove Music 1.0 · plays MP3, FLAC (incl. 24-bit), OGG, OPUS, M4A, WAV") {}
+        var about by remember { mutableStateOf(false) }
+        val ver = remember { runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "" }
+        SettingItem("about", "GroveMedia $ver · tap to see what's new") { about = true }
+        if (about) AboutDialog(ver, accent) { about = false }
         Spacer(Modifier.height(24.dp))
     }
     }
+}
+
+private val CHANGES = listOf(
+    "one app" to "music, videos, comics and books together — Grove Music and Grove Book joined as GroveMedia",
+    "comics" to "Grove Book's library, updates, history, browse and more as tabs inside GroveMedia",
+    "book" to "offline books (epub, pdf, cbz…) from your folders in their own tab",
+    "stats" to "all · music · videos · comics · book, with total time split by media",
+    "videos" to "VLC player, picture-in-picture, audio-only, pinch zoom-to-fill, immersive full screen",
+    "video info" to "posters, cast and episodes from TMDB / TVmaze, YouTube matches, rename files",
+    "hidden" to "hide videos or shows — they move to videos → hidden, with undo",
+    "favourites" to "heart videos and shows for a favourites tab",
+    "network stream" to "play any video link from the ••• menu",
+    "open with" to "set GroveMedia as default player for music and video files",
+    "music" to "songs · artists · albums · playlists, album covers on every song, genres in albums",
+    "lyrics" to "synced lyrics from LRCLIB / NetEase",
+    "radio & mixes" to "endless radio from any song, daily mixes, rediscover",
+    "crossfade" to "smooth fades, also when you skip",
+    "tag editor" to "edit song info and artwork, even on damaged tags",
+    "speed dial" to "pin songs, albums, artists and playlists to home",
+    "android auto" to "browse playlists, mixes and songs in the car",
+    "backup" to "back up and restore your comics library, sources and settings",
+    "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
+)
+
+@Composable
+fun AboutDialog(ver: String, accent: Color, onDismiss: () -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, containerColor = lerp(accent, Color.Black, 0.6f),
+        title = { Column { Text("GroveMedia", color = White, fontSize = 30.sp, fontWeight = FontWeight.Light); Text("version $ver", color = Dim, fontSize = 13.sp) } },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                item { SectionLabel("what's new", accent) }
+                itemsIndexed(CHANGES) { _, (t, d) ->
+                    Column(Modifier.padding(vertical = 5.dp)) {
+                        Text(t, color = accent, fontSize = 15.sp)
+                        Text(d, color = White, fontSize = 13.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = { Text("close", color = White, modifier = Modifier.tilt(onDismiss).padding(8.dp)) })
 }
 
 @Composable

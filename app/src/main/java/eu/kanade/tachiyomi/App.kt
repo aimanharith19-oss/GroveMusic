@@ -182,6 +182,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         graph.inject(this)
 
         GlobalExceptionHandler.initialize(applicationContext, CrashActivity::class.java)
+        com.grove.music.CrashReport.install(applicationContext)
 
         // TLS 1.3 support for Android < 10
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
