@@ -233,6 +233,25 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /** manual skip: quick fade out, change song, fade in — no hand-off between players, so no jump */
+    private fun dip(player: ExoPlayer, skip: () -> Unit) {
+        val ms = xPrefs.crossfade * 1000L
+        if (ms <= 0 || perfectNow || !player.isPlaying) { blendJob?.cancel(); player.volume = 1f; skip(); return }
+        blendJob?.cancel(); fader?.stop()
+        val half = (ms / 4).coerceIn(150L, 600L)
+        blendJob = scope.launch {
+            try {
+                val steps = (half / 20).toInt().coerceAtLeast(1)
+                for (i in steps downTo 1) { player.volume = i.toFloat() / steps; kotlinx.coroutines.delay(20) }
+                player.volume = 0f
+                skip()
+                var waited = 0
+                while (player.playbackState == Player.STATE_BUFFERING && waited < 1500) { kotlinx.coroutines.delay(20); waited += 20 }
+                for (i in 1..steps) { kotlinx.coroutines.delay(20); player.volume = i.toFloat() / steps }
+            } finally { player.volume = 1f }
+        }
+    }
+
     private fun startCrossfade(player: ExoPlayer, prefs: Prefs) {
         xPrefs = prefs
         fader = ExoPlayer.Builder(this, renderers(prefs)).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(GroveDataSource.Factory(this))).setAudioAttributes(
@@ -259,12 +278,12 @@ class PlaybackService : MediaLibraryService() {
 
     /** the player the app, notification and car control: skips go through [blend] so they crossfade too */
     private fun xfade(p: ExoPlayer) = object : androidx.media3.common.ForwardingPlayer(p) {
-        override fun seekToNext() = blend(p) { p.seekToNext() }
-        override fun seekToNextMediaItem() = blend(p) { p.seekToNextMediaItem() }
-        override fun seekToPrevious() { if (p.currentPosition > 3000) p.seekToPrevious() else blend(p) { p.seekToPrevious() } }
-        override fun seekToPreviousMediaItem() = blend(p) { p.seekToPreviousMediaItem() }
+        override fun seekToNext() = dip(p) { p.seekToNext() }
+        override fun seekToNextMediaItem() = dip(p) { p.seekToNextMediaItem() }
+        override fun seekToPrevious() { if (p.currentPosition > 3000) p.seekToPrevious() else dip(p) { p.seekToPrevious() } }
+        override fun seekToPreviousMediaItem() = dip(p) { p.seekToPreviousMediaItem() }
         override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-            if (mediaItemIndex != p.currentMediaItemIndex) blend(p) { p.seekTo(mediaItemIndex, positionMs) } else p.seekTo(mediaItemIndex, positionMs)
+            if (mediaItemIndex != p.currentMediaItemIndex) dip(p) { p.seekTo(mediaItemIndex, positionMs) } else p.seekTo(mediaItemIndex, positionMs)
         }
     }
 

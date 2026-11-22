@@ -2106,7 +2106,7 @@ private val CHANGES = listOf(
     "music" to "songs · artists · albums · playlists, album covers on every song, genres in albums",
     "lyrics" to "synced lyrics from LRCLIB / NetEase",
     "radio & mixes" to "endless radio from any song, daily mixes, rediscover",
-    "crossfade" to "smooth fades, also when you skip",
+    "crossfade" to "smooth crossfade between songs; skipping does a quick fade with no jump",
     "tag editor" to "edit song info and artwork, even on damaged tags",
     "speed dial" to "pin songs, albums, artists and playlists to home",
     "android auto" to "browse playlists, mixes and songs in the car",
