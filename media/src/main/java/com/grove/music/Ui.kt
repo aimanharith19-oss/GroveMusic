@@ -2029,6 +2029,12 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                     .tilt { eng = k; prefs.videoEngine = k }.padding(horizontal = 12.dp, vertical = 8.dp))
             }
         }
+        val allFiles = remember { mutableStateOf(android.os.Environment.isExternalStorageManager()) }
+        SettingItem("find every video (like VLC)", if (allFiles.value) "on — videos Android doesn't list (rmvb, vob, iso, mxf…) are found too · rescan to refresh"
+            else "allow all-files access so GroveMedia can find every format VLC plays, not only the ones Android lists") {
+            runCatching { ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${ctx.packageName}"))) }
+        }
         Text("auto: 4K / 8K videos use the phone's hardware decoder (HEVC, AV1, 10-bit, HDR), everything else uses VLC. VLC plays the most formats; hardware handles the biggest videos.",
             color = Dim, fontSize = 12.sp)
         // ── icon style
@@ -2133,6 +2139,7 @@ private val CHANGES = listOf(
     "picture-in-picture" to "play / pause button in the floating video updates right away",
     "4K / 8K video" to "4K / 8K videos use the phone's hardware decoder inside the same GroveMedia player — all controls stay",
     "hide" to "hide a video or show from its ••• menu, next to rename file",
+    "every format" to "plays everything VLC plays (mkv, avi, rmvb, vob, iso, ts, webm, wmv…); optional all-files access finds unlisted videos",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )

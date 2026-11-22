@@ -143,6 +143,8 @@ class VideoActivity : ComponentActivity() {
         fun open(ctx: Context, v: Video, title: String) {
             val eng = Prefs(ctx).videoEngine
             val hw = eng == "exo" || (eng == "auto" && maxOf(v.w, v.h) >= 3000)
+            if (v.id < 0) { ctx.startActivity(Intent(ctx, VideoActivity::class.java).setData(Uri.fromFile(java.io.File(v.path ?: "")))
+                .putExtra("title", title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return }
             ctx.startActivity(Intent(ctx, VideoActivity::class.java).putExtra("id", v.id).putExtra("title", title)
                 .putExtra("w", v.w).putExtra("h", v.h).putExtra("hw", hw).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
@@ -205,6 +207,12 @@ class VideoActivity : ComponentActivity() {
                     .setHandleAudioBecomingNoisy(true).build().also { e ->
                         e.addListener(object : androidx.media3.common.Player.Listener {
                             override fun onIsPlayingChanged(isPlaying: Boolean) { refresh() }
+                            // the hardware engine can't play this file (e.g. DTS / TrueHD audio, odd codec) → VLC takes over
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { fallbackToVlc() }
+                            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                                val audio = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
+                                if (audio.isNotEmpty() && audio.none { g -> (0 until g.length).any { g.isTrackSupported(it) } }) fallbackToVlc()
+                            }
                         })
                     }
             }
@@ -257,6 +265,17 @@ class VideoActivity : ComponentActivity() {
     }
 
     private val title = mutableStateOf("")
+
+    private fun fallbackToVlc() {
+        val id = videoId; if (id == 0L || exo == null) return
+        val t = exo?.currentPosition ?: 0
+        exo?.release(); exo = null; hw.value = false
+        android.os.Handler(mainLooper).post {
+            load(Intent().putExtra("id", id).putExtra("title", title.value).putExtra("w", vw).putExtra("h", vh).putExtra("hw", false))
+            if (t > 1000) pTime = t
+            android.widget.Toast.makeText(this, "playing with VLC (this file needs it)", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // black-picture guard: some phones can't draw 4K / 10-bit video through the fast path; reopen it the safe way
     private var mk: (() -> Media)? = null

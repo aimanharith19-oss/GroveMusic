@@ -54,7 +54,8 @@ fun VideoThumb(v: Video, modifier: Modifier) {
     val bmp by produceState<Bitmap?>(null, v.id) {
         value = withContext(Dispatchers.IO) {
             runCatching {
-                if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(v.uri, Size(480, 270), null)
+                if (v.id < 0) android.media.ThumbnailUtils.createVideoThumbnail(java.io.File(v.path ?: ""), Size(480, 270), null)
+                else if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(v.uri, Size(480, 270), null)
                 else @Suppress("DEPRECATION") android.media.ThumbnailUtils.createVideoThumbnail(v.path ?: "", MediaStore.Video.Thumbnails.MINI_KIND)
             }.getOrNull()
         }

@@ -62,6 +62,25 @@ object VideoRepository {
                     c.getInt(i(MediaStore.Video.Media.HEIGHT)), c.getLong(i(MediaStore.Video.Media.DATE_ADDED)))
             }
         }
+        // like VLC: with "all files access", also find videos Android doesn't index (rmvb, vob, iso, mxf, odd mkv/ts…)
+        if (android.os.Environment.isExternalStorageManager()) runCatching {
+            val known = out.mapNotNull { it.path }.toHashSet()
+            val root = android.os.Environment.getExternalStorageDirectory()
+            fun walk(d: java.io.File, depth: Int) {
+                if (depth > 8) return
+                d.listFiles()?.forEach { f ->
+                    if (f.isDirectory) { if (!f.name.startsWith(".") && !(depth == 0 && f.name == "Android")) walk(f, depth + 1) }
+                    else if (f.extension.lowercase() in VLC_EXT && f.path !in known && f.length() > 100_000)
+                        out += Video(-(f.path.hashCode().toLong() and 0x7fffffffL) - 1, f.nameWithoutExtension, f.name, f.path, 0, f.length(), 0, 0, f.lastModified() / 1000)
+                }
+            }
+            walk(root, 0)
+        }
         return out
     }
+
+    /** video containers VLC can open */
+    val VLC_EXT = setOf("3g2", "3gp", "3gpp", "amv", "asf", "avi", "bik", "divx", "dv", "evo", "f4v", "flv", "gxf", "iso", "m1v", "m2t", "m2ts",
+        "m2v", "m4v", "mkv", "mov", "mp2v", "mp4", "mp4v", "mpe", "mpeg", "mpeg1", "mpeg2", "mpeg4", "mpg", "mpv2", "mts", "mtv", "mxf", "nsv",
+        "nuv", "ogg", "ogm", "ogv", "ogx", "ps", "rec", "rm", "rmvb", "tod", "trp", "ts", "tts", "vob", "vro", "webm", "wm", "wmv", "wtv", "xesc", "xvid")
 }
