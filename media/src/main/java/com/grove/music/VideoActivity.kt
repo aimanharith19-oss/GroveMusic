@@ -128,7 +128,13 @@ class VideoActivity : ComponentActivity() {
         fun openUrl(ctx: Context, url: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
             .putExtra("url", url).putExtra("title", Uri.parse(url).let { (it.lastPathSegment ?: it.host ?: url) })
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        fun open(ctx: Context, v: Video, title: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
+        /** 4K and bigger go to the hardware ExoPlayer engine (setting: auto / VLC / ExoPlayer) */
+        fun open(ctx: Context, v: Video, title: String) {
+            val eng = Prefs(ctx).videoEngine
+            if (eng == "exo" || (eng == "auto" && maxOf(v.w, v.h) >= 3000)) { HdVideoActivity.open(ctx, v); return }
+            openVlc(ctx, v, title)
+        }
+        fun openVlc(ctx: Context, v: Video, title: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
             .putExtra("id", v.id).putExtra("title", title).putExtra("w", v.w).putExtra("h", v.h)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -204,7 +210,7 @@ class VideoActivity : ComponentActivity() {
         pfd?.close()
         pfd = contentResolver.openFileDescriptor(uri, "r") ?: return
         retried = false; vouts = 0
-        mk = { Media(lib, pfd!!.fileDescriptor) }
+        mk = { Media(lib, pfd!!.fileDescriptor).apply { setHWDecoderEnabled(true, false) } }
         val m = mk!!()
         player.media = m; m.release()
         // pause the music player

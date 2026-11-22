@@ -2020,6 +2020,17 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 Text("remove", color = accent, fontSize = 14.sp, modifier = Modifier.tilt { Dsd.removeFolder(ctx, u); dsdDirs = Dsd.folders(ctx); vm.load() }.padding(6.dp))
             }
         }
+        // ── video engine
+        SectionLabel("video player", accent, Modifier.padding(top = 18.dp))
+        var eng by remember { mutableStateOf(prefs.videoEngine) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+            listOf("auto" to "auto", "vlc" to "VLC", "exo" to "hardware").forEach { (k, l) ->
+                Text(l, color = White, fontSize = 15.sp, modifier = Modifier.background(if (eng == k) accent else Color.White.copy(alpha = 0.08f))
+                    .tilt { eng = k; prefs.videoEngine = k }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }
+        Text("auto: 4K / 8K videos use the phone's hardware decoder (HEVC, AV1, 10-bit, HDR), everything else uses VLC. VLC plays the most formats; hardware handles the biggest videos.",
+            color = Dim, fontSize = 12.sp)
         // ── icon style
         SectionLabel("icon style", accent, Modifier.padding(top = 18.dp))
         var iconStyle by remember { mutableStateOf(prefs.iconStyle) }
@@ -2120,7 +2131,7 @@ private val CHANGES = listOf(
     "now playing" to "heart stays on the right, title uses the full width",
     "rescan" to "rescan library now covers music, videos, books and new comic chapters",
     "picture-in-picture" to "play / pause button in the floating video updates right away",
-    "4K video" to "fixed black picture on 4K / 60fps videos (falls back to a compatible mode automatically)",
+    "4K / 8K video" to "very large videos play on the phone's hardware decoder (HEVC, AV1, 10-bit, HDR) — choose the engine in settings",
     "hide" to "hide a video or show from its ••• menu, next to rename file",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",

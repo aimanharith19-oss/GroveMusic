@@ -338,6 +338,9 @@ class Prefs(ctx: Context) {
     var gaplessAlbums: Boolean
         get() = sp.getBoolean("gapless_albums", true)
         set(v) = sp.edit().putBoolean("gapless_albums", v).apply()
+    var videoEngine: String
+        get() = sp.getString("video_engine", "auto") ?: "auto"
+        set(v) = sp.edit().putString("video_engine", v).apply()
     var iconStyle: String
         get() = sp.getString("icon_style", "colour") ?: "colour"
         set(v) = sp.edit().putString("icon_style", v).apply()
