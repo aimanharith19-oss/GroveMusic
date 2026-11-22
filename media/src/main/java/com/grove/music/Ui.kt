@@ -2104,7 +2104,7 @@ private val CHANGES = listOf(
     "network stream" to "play any video link from the ••• menu",
     "open with" to "set GroveMedia as default player for music and video files",
     "music" to "songs · artists · albums · playlists, album covers on every song, genres in albums",
-    "lyrics" to "synced lyrics from LRCLIB / NetEase",
+    "lyrics" to "synced lyrics from LRCLIB / NetEase — the line being sung glows",
     "radio & mixes" to "endless radio from any song, daily mixes, rediscover",
     "crossfade" to "smooth crossfade between songs; skipping does a quick fade with no jump",
     "tag editor" to "edit song info and artwork, even on damaged tags",
@@ -2117,6 +2117,7 @@ private val CHANGES = listOf(
     "A-B loop" to "repeat any part of a song from the now playing screen",
     "widgets" to "pill, wide and square home screen widgets plus a quick settings play tile",
     "icon styles" to "colour, neon, mono and glass app icons",
+    "now playing" to "heart stays on the right, title uses the full width",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
@@ -2372,14 +2373,15 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             LiveLyric(if (showLyrics) null else lyrics, { posS.longValue }) { showLyrics = true }
             Spacer(Modifier.height(14.dp))
             SlideText(md.title?.toString().orEmpty() to format, dir) { (t, f) ->
+                // title uses all the room up to the heart; the heart stays pinned on the right
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // long names wrap (and shrink a little) so the whole title is visible
-                    Text(t, color = White, fontSize = if (t.length > 40) 22.sp else 28.sp, lineHeight = if (t.length > 40) 26.sp else 32.sp,
-                        fontWeight = FontWeight.Light, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
-                    Spacer(Modifier.weight(1f))
-                    if (song != null) LikeButton(vm.playlists, song.id, accent)
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Text(t, color = White, fontSize = if (t.length > 40) 22.sp else 28.sp, lineHeight = if (t.length > 40) 26.sp else 32.sp,
+                            fontWeight = FontWeight.Light, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (f.isNotEmpty()) Text(f, color = White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 8.dp).background(accent).padding(horizontal = 5.dp, vertical = 1.dp))
+                    }
+                    if (song != null) Box(Modifier.padding(start = 8.dp)) { LikeButton(vm.playlists, song.id, accent) }
                 }
             }
             // singer(s) under the title — tap one to open their artist page
@@ -2568,7 +2570,9 @@ fun LiveLyric(lyrics: Lyrics?, pos: () -> Long, onOpen: () -> Unit) {
         }, label = "liveLyric") { i ->
             Column {
                 Text(lyrics.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() } ?: "♪", color = White, fontSize = 22.sp,
-                    fontWeight = FontWeight.Light, lineHeight = 27.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    fontWeight = FontWeight.Light, lineHeight = 27.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(
+                        Color.White.copy(alpha = 0.75f), androidx.compose.ui.geometry.Offset.Zero, 24f)))
                 Text(lyrics.lines.getOrNull(i + 1)?.text.orEmpty(), color = White.copy(alpha = 0.45f), fontSize = 16.sp,
                     fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -2607,6 +2611,9 @@ fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: () -> Long, accent: Color
                             color = when { i == cur -> White; lyrics.synced -> White.copy(alpha = 0.35f); else -> White.copy(alpha = 0.85f) },
                             fontSize = if (i == cur) 24.sp else 20.sp,
                             fontWeight = if (i == cur) FontWeight.Normal else FontWeight.Light,
+                            // the line being sung glows in the accent colour
+                            style = if (i == cur && lyrics.synced) androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(
+                                lerp(accent, White, 0.35f), androidx.compose.ui.geometry.Offset.Zero, 28f)) else LocalTextStyle.current,
                             modifier = Modifier.fillMaxWidth()
                                 .clickable(enabled = lyrics.synced) { onSeek(l.time) }
                                 .padding(vertical = 6.dp))
