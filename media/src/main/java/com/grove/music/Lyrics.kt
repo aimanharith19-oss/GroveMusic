@@ -178,6 +178,39 @@ object NetEase {
     }
 }
 
+private fun norm(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+private fun close(a: String, b: String) = norm(a).let { x -> val y = norm(b); x.isNotEmpty() && (x == y || x.startsWith(y) || y.startsWith(x)) }
+
+/** Kugou — big synced catalogue (Asian, Malay and Western pop), matched by title, artist and length. */
+object Kugou {
+    fun fetch(k: TrackKey): String? {
+        val q = URLEncoder.encode("${k.artist} - ${k.title}", "UTF-8")
+        val c = JSONObject(httpGet("https://lyrics.kugou.com/search?ver=1&man=yes&client=pc&keyword=$q&duration=${k.durationMs}&hash=") ?: return null)
+            .optJSONArray("candidates") ?: return null
+        val hit = (0 until c.length()).map { c.getJSONObject(it) }.firstOrNull { o ->
+            (k.durationMs <= 0 || kotlin.math.abs(o.optLong("duration") - k.durationMs) < 6000) && close(o.optString("song"), k.title)
+        } ?: return null
+        val d = JSONObject(httpGet("https://lyrics.kugou.com/download?ver=1&client=pc&id=${hit.optString("id")}&accesskey=${hit.optString("accesskey")}&fmt=lrc&charset=utf8")
+            ?: return null).optString("content").takeIf { it.isNotBlank() } ?: return null
+        return String(android.util.Base64.decode(d, android.util.Base64.DEFAULT), Charsets.UTF_8).takeIf { it.isNotBlank() }
+    }
+}
+
+/** QQ Music — synced lyrics, strong for Chinese, K-pop and regional music. */
+object QQMusic {
+    fun fetch(k: TrackKey): String? {
+        val q = URLEncoder.encode("${k.title} ${k.artist}", "UTF-8")
+        val list = JSONObject(httpGet("https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=$q&format=json&p=1&n=8", "https://y.qq.com") ?: return null)
+            .optJSONObject("data")?.optJSONObject("song")?.optJSONArray("list") ?: return null
+        val hit = (0 until list.length()).map { list.getJSONObject(it) }.firstOrNull { o ->
+            close(o.optString("songname"), k.title) && (k.durationMs <= 0 || kotlin.math.abs(o.optLong("interval") * 1000 - k.durationMs) < 6000)
+        } ?: return null
+        val t = JSONObject(httpGet("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${hit.optString("songmid")}&format=json&nobase64=1",
+            "https://y.qq.com") ?: return null).optString("lyric")
+        return android.text.Html.fromHtml(t, android.text.Html.FROM_HTML_MODE_LEGACY).toString().takeIf { it.isNotBlank() && !it.contains("此歌曲为没有填词的纯音乐") }
+    }
+}
+
 /** lyrics.ovh — plain (unsynced) lyrics as a last resort. */
 object LyricsOvh {
     fun fetch(k: TrackKey): String? {
@@ -219,15 +252,21 @@ object LyricsRepository {
             val t = FlacTags.read(ctx, u)
             LrcParser.parse(t["LYRICS"] ?: t["SYNCEDLYRICS"] ?: t["UNSYNCEDLYRICS"] ?: t["UNSYNCED LYRICS"], "embedded in file")
         }?.let { return it }
+        // 4b. lyrics tag in MP3 / M4A / OGG / OPUS / WMA / DSF files
+        k.path?.let { p -> runCatching {
+            val f = File(p); if (!f.canRead()) null
+            else org.jaudiotagger.audio.AudioFileIO.read(f).tag?.getFirst(org.jaudiotagger.tag.FieldKey.LYRICS)?.takeIf { it.isNotBlank() }
+        }.getOrNull() }?.let { LrcParser.parse(it, "embedded in file") }?.let { return it }
         // 5. previously downloaded / 6. lrclib.net
         if (k.artist.isBlank() || k.artist == "unknown artist") return null
         val cache = File(ctx.filesDir, "lyrics/" + "${k.artist} - ${k.title}".replace(Regex("""[^\w\- ]"""), "_").take(120) + ".lrc")
-        if (cache.exists()) return LrcParser.parse(cache.readText(), "lrclib.net (saved)")
+        if (cache.exists()) return LrcParser.parse(cache.readText(), "saved")
         if (!prefs.onlineLyrics) return null
         // online sources, best first: synced lyrics from LRCLIB or NetEase, then plain text from lyrics.ovh
         var best: Pair<String, String>? = null
         for ((name, src) in listOf<Pair<String, (TrackKey) -> String?>>(
-            "lrclib.net" to LrcLib::fetch, "NetEase" to NetEase::fetch, "lyrics.ovh" to LyricsOvh::fetch)) {
+            "lrclib.net" to LrcLib::fetch, "NetEase" to NetEase::fetch, "Kugou" to Kugou::fetch, "QQ Music" to QQMusic::fetch,
+            "lyrics.ovh" to LyricsOvh::fetch)) {
             val t = runCatching { src(k) }.getOrNull()?.takeIf { it.isNotBlank() } ?: continue
             val parsed = LrcParser.parse(t, name) ?: continue
             if (best == null) best = t to name

@@ -2123,7 +2123,7 @@ private val CHANGES = listOf(
     "network stream" to "play any video link from the ••• menu",
     "open with" to "set GroveMedia as default player for music and video files",
     "music" to "songs · artists · albums · playlists, album covers on every song, genres in albums",
-    "lyrics" to "synced lyrics from LRCLIB / NetEase — the line being sung glows",
+    "lyrics" to "synced lyrics from LRCLIB, NetEase, Kugou and QQ Music, plus .lrc files and lyrics tags in any song file — the line being sung glows",
     "radio & mixes" to "endless radio from any song, daily mixes, rediscover",
     "crossfade" to "smooth crossfade between songs; skipping does a quick fade with no jump",
     "tag editor" to "edit song info and artwork, even on damaged tags",
