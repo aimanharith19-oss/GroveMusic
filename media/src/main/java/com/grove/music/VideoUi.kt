@@ -109,7 +109,7 @@ fun rememberRenamer(onDone: (Int) -> Unit): Pair<Renamer, (List<Pair<Video, Stri
 /** Videos tab: TV shows (posters), movies (posters), everything else (frames). */
 @Composable
 fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
-    var sub by rememberSaveable { mutableStateOf("all") }
+    var sub by rememberTab("videos", "all")
     Column(Modifier.fillMaxSize()) {
         SubPivot(listOf("all", "favourites", "hidden"), sub, accent, { if (it == "hidden") vm.hiddenItems.value.size else 0 }) { sub = it }
         Box(Modifier.weight(1f)) {

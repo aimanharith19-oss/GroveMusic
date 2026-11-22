@@ -205,6 +205,9 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
     var forward by remember { mutableStateOf(true) }
     val open: (Screen) -> Unit = { forward = true; stack = stack + it }
     BackHandler(stack.size > 1) { forward = false; stack = stack.dropLast(1) }
+    // back on the home pivot just puts GroveMedia in the background, so it reopens where you left it
+    val actx = LocalContext.current
+    BackHandler(stack.size <= 1) { (actx as? android.app.Activity)?.moveTaskToBack(true) }
 
     var addTarget by remember { mutableStateOf<List<Long>?>(null) }
     vm.playRadio = { list ->
@@ -555,7 +558,8 @@ fun HomeScreen(
 ) {
     // short top level; music keeps its own sections inside (songs, artists, albums…)
     val pages = listOf("home", "music", "videos", "comics", "book", "stats")
-    val pager = rememberPagerState { pages.size }
+    val pager = rememberPagerState(initialPage = UiMemory.page.coerceIn(0, pages.size - 1)) { pages.size }
+    LaunchedEffect(pager) { snapshotFlow { pager.currentPage }.collect { UiMemory.page = it } }
     val deep = BookBridge.deep.values.any { it }
     val cctx = LocalContext.current
     var crash by remember { mutableStateOf<String?>(null) }
@@ -612,11 +616,12 @@ fun HomeScreen(
                         }) { play(songs, it) }
                         "artists" -> ArtistsPage(songs, vm, accent) { open(Screen.Artist(it)) }
                         "albums" -> {
-                            var byGenre by rememberSaveable { mutableStateOf(false) }
+                            val byGenreS = rememberTab("albums_by", "album")
+                            val byGenre = byGenreS.value == "genre"
                             Column {
                                 Row(Modifier.padding(start = 20.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     listOf(false to "by album", true to "by genre").forEach { (g, l) ->
-                                        Text(l, color = if (byGenre == g) White else Dim, fontSize = 14.sp, modifier = Modifier.tilt { byGenre = g })
+                                        Text(l, color = if (byGenre == g) White else Dim, fontSize = 14.sp, modifier = Modifier.tilt { byGenreS.value = if (g) "genre" else "album" })
                                     }
                                 }
                                 Box(Modifier.weight(1f)) {
@@ -729,6 +734,20 @@ fun BackupBox(accent: Color, modifier: Modifier = Modifier) {
     }
 }
 
+/** Remembers tabs and sub-tabs for as long as GroveMedia is running (until it's force-closed). */
+object UiMemory {
+    var page = 0
+    val tabs = HashMap<String, String>()
+}
+
+/** a tab choice that survives leaving and reopening the app */
+@Composable
+fun rememberTab(key: String, default: String): MutableState<String> {
+    val st = remember { mutableStateOf(UiMemory.tabs[key] ?: default) }
+    LaunchedEffect(st.value) { UiMemory.tabs[key] = st.value }
+    return st
+}
+
 /** Second row of pivot headers inside a tab (songs · artists…, library · updates…). */
 @Composable
 fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) -> Int = { 0 }, onSel: (String) -> Unit) {
@@ -751,7 +770,7 @@ fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) ->
 @Composable
 fun ComicsPage(accent: Color) {
     val ctx = LocalContext.current
-    var sub by rememberSaveable { mutableStateOf("library") }
+    var sub by rememberTab("comics", "library")
     var updates by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { updates = withContext(Dispatchers.IO) { Books.newChapters(ctx) } }
     val deep = BookBridge.deep.values.any { it }
@@ -769,7 +788,7 @@ fun ComicsPage(accent: Color) {
 /** Music: a row of section chips (songs, artists, albums, genres, playlists, no info) over the content. */
 @Composable
 fun MusicPage(accent: Color, content: @Composable (String) -> Unit) {
-    var sec by rememberSaveable { mutableStateOf("songs") }
+    var sec by rememberTab("music", "songs")
     Column(Modifier.fillMaxSize()) {
         SubPivot(listOf("songs", "artists", "albums", "playlists"), sec, accent) { sec = it }
         Box(Modifier.weight(1f)) { content(sec) }
@@ -1241,7 +1260,7 @@ private fun hrs(ms: Long): String = when {
 /** Stats: all · music · videos · comics · book */
 @Composable
 fun StatsPage(vm: MusicViewModel, accent: Color) {
-    var sub by rememberSaveable { mutableStateOf("all") }
+    var sub by rememberTab("stats", "all")
     Column(Modifier.fillMaxSize()) {
         SubPivot(listOf("all", "music", "videos", "comics", "book"), sub, accent) { sub = it }
         Box(Modifier.weight(1f)) {
@@ -1262,7 +1281,7 @@ private class AllData(val music: Stats, val watch: Stats, val comics: Books.Read
 private fun AllStats(vm: MusicViewModel, accent: Color) {
     val ctx = LocalContext.current
     var d by remember { mutableStateOf<AllData?>(null) }
-    var period by rememberSaveable { mutableStateOf("month") }
+    var period by rememberTab("stats_period", "month")
     LaunchedEffect(Unit) { d = withContext(Dispatchers.IO) {
         AllData(Stats(StatsLog.read(ctx)), Stats(StatsLog.readWatch(ctx)), Books.ReadStats(Books.history(ctx)), BookTime(ctx)) } }
     val x = d ?: run { EmptyMsg("loading…"); return }
@@ -2144,6 +2163,7 @@ private val CHANGES = listOf(
     "every format" to "plays everything VLC plays (mkv, avi, rmvb, vob, iso, ts, webm, wmv…); optional all-files access finds unlisted videos",
     "car lyrics" to "Android Auto shows the line being sung big, with the next line under it",
     "mini player" to "swipe now playing or a video down to shrink it, like YouTube",
+    "stays put" to "reopening GroveMedia keeps your tab and sub-tab, until the app is force-closed",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
