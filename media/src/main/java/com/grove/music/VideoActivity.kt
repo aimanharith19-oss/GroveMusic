@@ -144,7 +144,8 @@ class VideoActivity : ComponentActivity() {
             systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         current = this
-        lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--no-drop-late-frames", "--no-skip-frames"))
+        // let VLC drop late frames: forcing every frame made 4K 60fps fall behind and show a black picture
+        lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--codec=mediacodec_ndk,mediacodec_jni,all"))
         player = MediaPlayer(lib)
         session = android.media.session.MediaSession(this, "GroveVideo").apply {
             setCallback(object : android.media.session.MediaSession.Callback() {
@@ -158,6 +159,8 @@ class VideoActivity : ComponentActivity() {
             isActive = true
         }
         player.setEventListener { e ->
+            if (e.type == MediaPlayer.Event.Vout) vouts = e.voutCount
+            if (e.type == MediaPlayer.Event.Playing && !retried) android.os.Handler(mainLooper).postDelayed({ blackCheck() }, 2500)
             if (e.type == MediaPlayer.Event.Playing || e.type == MediaPlayer.Event.Paused) refresh()
             if (e.type == MediaPlayer.Event.EndReached) refresh()
         }
@@ -180,10 +183,10 @@ class VideoActivity : ComponentActivity() {
             val u = i.data!!
             title.value = runCatching { contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } }.getOrNull()?.substringBeforeLast('.') ?: (u.lastPathSegment ?: "video")
-            val m = if (u.scheme == "content") {
-                pfd?.close(); pfd = contentResolver.openFileDescriptor(u, "r") ?: return
-                Media(lib, pfd!!.fileDescriptor)
-            } else Media(lib, u).apply { addOption(":network-caching=1500") }
+            if (u.scheme == "content") { pfd?.close(); pfd = contentResolver.openFileDescriptor(u, "r") ?: return }
+            retried = false; vouts = 0
+            mk = { if (u.scheme == "content") Media(lib, pfd!!.fileDescriptor) else Media(lib, u).apply { addOption(":network-caching=1500") } }
+            val m = mk!!()
             player.media = m; m.release()
             @Suppress("DEPRECATION")
             (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
@@ -200,7 +203,9 @@ class VideoActivity : ComponentActivity() {
         val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
         pfd?.close()
         pfd = contentResolver.openFileDescriptor(uri, "r") ?: return
-        val m = Media(lib, pfd!!.fileDescriptor)
+        retried = false; vouts = 0
+        mk = { Media(lib, pfd!!.fileDescriptor) }
+        val m = mk!!()
         player.media = m; m.release()
         // pause the music player
         @Suppress("DEPRECATION")
@@ -212,6 +217,22 @@ class VideoActivity : ComponentActivity() {
     }
 
     private val title = mutableStateOf("")
+
+    // black-picture guard: some phones can't draw 4K / 10-bit video through the fast path; reopen it the safe way
+    private var mk: (() -> Media)? = null
+    private var vouts = 0
+    private var retried = false
+    private fun blackCheck() {
+        if (retried || audioOnly.value || !::player.isInitialized || !player.isPlaying) return
+        if (player.videoTracksCount > 0 && vouts == 0) {
+            retried = true
+            val t = player.time
+            val m = mk?.invoke() ?: return
+            m.addOption(":no-mediacodec-dr")
+            player.media = m; m.release(); player.play(); player.time = t
+            android.widget.Toast.makeText(this, "switched to compatible video mode", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private var watched = 0L
     private var watchStart = System.currentTimeMillis()

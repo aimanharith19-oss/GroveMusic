@@ -320,6 +320,20 @@ private fun OnlineSearch(v: Video, accent: Color, done: () -> Unit) {
     }
 }
 
+/** "•••" with a small menu (hide, …) */
+@Composable
+fun MoreMenu(accent: Color, items: List<Pair<String, () -> Unit>>) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Text("•••", color = W, fontSize = 18.sp, modifier = Modifier.tilt { open = true }.padding(horizontal = 12.dp, vertical = 8.dp))
+        androidx.compose.material3.DropdownMenu(open, { open = false }, containerColor = lerp(accent, Color.Black, 0.6f)) {
+            items.forEach { (l, act) ->
+                androidx.compose.material3.DropdownMenuItem(text = { Text(l, color = W, fontSize = 17.sp) }, onClick = { open = false; act() })
+            }
+        }
+    }
+}
+
 @Composable
 fun FavButton(vm: MusicViewModel, key: String) {
     val on = vm.isFav(key)
@@ -418,12 +432,12 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                     Text("play", color = W, fontSize = 18.sp, modifier = Modifier.background(accent)
                         .tilt { VideoActivity.open(ctx, v, t?.name ?: v.parsed.title) }.padding(horizontal = 26.dp, vertical = 10.dp))
                     FavButton(vm, "v:${v.id}")
-                    Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
-                        vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
-                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
                     if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
+                    MoreMenu(accent, listOf("hide video" to {
+                        vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
+                    }))
                 }
                 Text(v.name, color = D, fontSize = 11.sp)
                 Text(if (t == null) "search online for this video" else "wrong match? search again", color = accent, fontSize = 15.sp,
@@ -468,9 +482,9 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
                     maxLines = 6, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp)) }
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FavButton(vm, "show:$name")
-                    Box(Modifier.size(44.dp).border(2.dp, W, CircleShape).clip(CircleShape).tilt {
+                    MoreMenu(accent, listOf("hide show" to {
                         vm.hideVideo("show:${name.lowercase()}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
-                    }, contentAlignment = Alignment.Center) { Icon(Icons.Rounded.VisibilityOff, "hide", tint = W, modifier = Modifier.size(22.dp)) }
+                    }))
                 }
                 CastRow(t?.cast ?: emptyList(), accent, open)
                 Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
