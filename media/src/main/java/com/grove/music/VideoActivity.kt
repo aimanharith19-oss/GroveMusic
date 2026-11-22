@@ -49,6 +49,17 @@ import org.videolan.libvlc.util.VLCVideoLayout
 class VideoActivity : ComponentActivity() {
     private lateinit var lib: LibVLC
     private lateinit var player: MediaPlayer
+    /** hardware engine (ExoPlayer) for 4K / 8K — same screen and controls, only the decoder changes */
+    private var exo: androidx.media3.exoplayer.ExoPlayer? = null
+    private val hw = mutableStateOf(false)
+    private var pTime: Long
+        get() = exo?.currentPosition ?: player.time
+        set(v) { val e = exo; if (e != null) e.seekTo(v) else player.time = v }
+    private val pLen: Long get() = exo?.let { e -> e.duration.takeIf { it > 0 } ?: 0L } ?: player.length
+    private val pPlaying: Boolean get() = exo?.isPlaying ?: player.isPlaying
+    private fun pPlay() { val e = exo; if (e != null) e.play() else player.play() }
+    private fun pPause() { val e = exo; if (e != null) e.pause() else player.pause() }
+    private fun pStop() { val e = exo; if (e != null) e.stop() else player.stop() }
     private var pfd: ParcelFileDescriptor? = null
     private var videoId = 0L
     private var vw = 16; private var vh = 9
@@ -60,18 +71,18 @@ class VideoActivity : ComponentActivity() {
     fun titleText() = title.value
     /** what the user asked for; VLC only reports the real state a moment later */
     private var want: Boolean? = null
-    private fun playingNow() = want ?: player.isPlaying
+    private fun playingNow() = want ?: pPlaying
     fun isPlaying() = ::player.isInitialized && playingNow()
     fun sessionToken() = session?.sessionToken
     fun toggle() {
         val play = !playingNow()
         want = play
-        if (play) player.play() else player.pause()
+        if (play) pPlay() else pPause()
         refresh()
         // once VLC has switched, go back to its real state
-        android.os.Handler(mainLooper).postDelayed({ if (player.isPlaying == play) { want = null }; refresh() }, 700)
+        android.os.Handler(mainLooper).postDelayed({ if (pPlaying == play) { want = null }; refresh() }, 700)
     }
-    fun skip(ms: Long) { player.time = (player.time + ms).coerceAtLeast(0); refresh() }
+    fun skip(ms: Long) { pTime = (pTime + ms).coerceAtLeast(0); refresh() }
 
     /** audio only: keep the sound going in the background with no picture */
     private val audioOnly = mutableStateOf(false)
@@ -83,12 +94,12 @@ class VideoActivity : ComponentActivity() {
                 android.media.session.PlaybackState.ACTION_FAST_FORWARD or android.media.session.PlaybackState.ACTION_REWIND or
                 android.media.session.PlaybackState.ACTION_STOP)
             .setState(if (playingNow()) android.media.session.PlaybackState.STATE_PLAYING else android.media.session.PlaybackState.STATE_PAUSED,
-                player.time, if (playingNow()) 1f else 0f).build()
+                pTime, if (playingNow()) 1f else 0f).build()
         session?.setPlaybackState(st)
         session?.setMetadata(android.media.MediaMetadata.Builder()
             .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, title.value)
             .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, "Grove Media")
-            .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, player.length)
+            .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, pLen)
             .putBitmap(android.media.MediaMetadata.METADATA_KEY_ART, thumb).build())
         VideoService.update(this)
         pipActions()
@@ -131,8 +142,9 @@ class VideoActivity : ComponentActivity() {
         /** 4K and bigger go to the hardware ExoPlayer engine (setting: auto / VLC / ExoPlayer) */
         fun open(ctx: Context, v: Video, title: String) {
             val eng = Prefs(ctx).videoEngine
-            if (eng == "exo" || (eng == "auto" && maxOf(v.w, v.h) >= 3000)) { HdVideoActivity.open(ctx, v); return }
-            openVlc(ctx, v, title)
+            val hw = eng == "exo" || (eng == "auto" && maxOf(v.w, v.h) >= 3000)
+            ctx.startActivity(Intent(ctx, VideoActivity::class.java).putExtra("id", v.id).putExtra("title", title)
+                .putExtra("w", v.w).putExtra("h", v.h).putExtra("hw", hw).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         fun openVlc(ctx: Context, v: Video, title: String) = ctx.startActivity(Intent(ctx, VideoActivity::class.java)
             .putExtra("id", v.id).putExtra("title", title).putExtra("w", v.w).putExtra("h", v.h)
@@ -157,7 +169,7 @@ class VideoActivity : ComponentActivity() {
             setCallback(object : android.media.session.MediaSession.Callback() {
                 override fun onPlay() { if (!playingNow()) toggle() }
                 override fun onPause() { if (playingNow()) toggle() }
-                override fun onSeekTo(pos: Long) { player.time = pos; refresh() }
+                override fun onSeekTo(pos: Long) { pTime = pos; refresh() }
                 override fun onFastForward() = skip(10_000)
                 override fun onRewind() = skip(-10_000)
                 override fun onStop() { finish() }
@@ -184,6 +196,28 @@ class VideoActivity : ComponentActivity() {
         videoId = i.getLongExtra("id", 0)
         vw = i.getIntExtra("w", 16).coerceAtLeast(1); vh = i.getIntExtra("h", 9).coerceAtLeast(1)
         title.value = i.getStringExtra("title").orEmpty()
+        if (i.getBooleanExtra("hw", false) && videoId != 0L) {
+            if (exo == null) {
+                player.stop()
+                exo = androidx.media3.exoplayer.ExoPlayer.Builder(this, androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
+                    .setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+                    .setHandleAudioBecomingNoisy(true).build().also { e ->
+                        e.addListener(object : androidx.media3.common.Player.Listener {
+                            override fun onIsPlayingChanged(isPlaying: Boolean) { refresh() }
+                        })
+                    }
+            }
+            hw.value = true
+            val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
+            exo!!.setMediaItem(androidx.media3.common.MediaItem.fromUri(uri))
+            val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
+            if (resume > 5000) exo!!.seekTo(resume)
+            exo!!.prepare(); exo!!.play()
+            thumb = runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull()
+            return
+        }
+        exo?.let { it.release(); exo = null }; hw.value = false
         // opened from a file manager / another app
         if (i.action == Intent.ACTION_VIEW && i.data != null) {
             val u = i.data!!
@@ -196,14 +230,14 @@ class VideoActivity : ComponentActivity() {
             player.media = m; m.release()
             @Suppress("DEPRECATION")
             (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-            player.play(); return
+            pPlay(); return
         }
         i.getStringExtra("url")?.let { url ->
             val m = Media(lib, Uri.parse(url)).apply { addOption(":network-caching=1500"); setHWDecoderEnabled(true, false) }
             player.media = m; m.release()
             @Suppress("DEPRECATION")
             (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-            player.play(); thumb = null
+            pPlay(); thumb = null
             return
         }
         val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
@@ -216,10 +250,10 @@ class VideoActivity : ComponentActivity() {
         // pause the music player
         @Suppress("DEPRECATION")
         (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-        player.play()
+        pPlay()
         thumb = runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull()
         val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
-        if (resume > 5000) player.time = resume
+        if (resume > 5000) pTime = resume
     }
 
     private val title = mutableStateOf("")
@@ -229,13 +263,13 @@ class VideoActivity : ComponentActivity() {
     private var vouts = 0
     private var retried = false
     private fun blackCheck() {
-        if (retried || audioOnly.value || !::player.isInitialized || !player.isPlaying) return
+        if (retried || audioOnly.value || !::player.isInitialized || !pPlaying) return
         if (player.videoTracksCount > 0 && vouts == 0) {
             retried = true
-            val t = player.time
+            val t = pTime
             val m = mk?.invoke() ?: return
             m.addOption(":no-mediacodec-dr")
-            player.media = m; m.release(); player.play(); player.time = t
+            player.media = m; m.release(); pPlay(); pTime = t
             android.widget.Toast.makeText(this, "switched to compatible video mode", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
@@ -246,7 +280,7 @@ class VideoActivity : ComponentActivity() {
     private fun savePos() {
         if (videoId == 0L || !::player.isInitialized) return
         StatsLog.recordWatch(this, watchStart, videoId, watched); watched = 0; watchStart = System.currentTimeMillis()
-        val t = player.time; val len = player.length
+        val t = pTime; val len = pLen
         getSharedPreferences("video_pos", MODE_PRIVATE).edit().apply {
             if (len > 0 && t > len - 30_000) remove(videoId.toString()) else putLong(videoId.toString(), t)
         }.apply()
@@ -271,7 +305,7 @@ class VideoActivity : ComponentActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (audioOnly.value) return
-        if (Build.VERSION.SDK_INT in 26..30 && player.isPlaying) pipParams(true)?.let { enterPictureInPictureMode(it) }
+        if (Build.VERSION.SDK_INT in 26..30 && pPlaying) pipParams(true)?.let { enterPictureInPictureMode(it) }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
@@ -279,7 +313,7 @@ class VideoActivity : ComponentActivity() {
         inPip.value = isInPictureInPictureMode
         // the PiP window was closed with its ✕ → stop the video (unless it switched to audio only)
         if (!isInPictureInPictureMode && !audioOnly.value &&
-            lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) { player.stop(); finish() }
+            lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) { pStop(); finish() }
     }
 
     override fun onResume() { super.onResume(); if (audioOnly.value) { audioOnly.value = false; pipParams(true) } }
@@ -287,13 +321,14 @@ class VideoActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         savePos()
-        if (!inPip.value && !audioOnly.value && !isFinishing) player.pause()
+        if (!inPip.value && !audioOnly.value && !isFinishing) pPause()
     }
 
     override fun onDestroy() {
         savePos()
         runCatching { unregisterReceiver(pipReceiver) }
         VideoService.stop(this); session?.release(); if (current === this) current = null
+        exo?.release(); exo = null
         player.stop(); player.detachViews(); player.release(); lib.release(); pfd?.close()
         super.onDestroy()
     }
@@ -307,14 +342,18 @@ class VideoActivity : ComponentActivity() {
         var drag by remember { mutableStateOf<Float?>(null) }
         var fill by remember { mutableStateOf(false) }
         val pip by inPip
-        LaunchedEffect(Unit) { while (true) { pos = player.time; len = player.length; playing = player.isPlaying; if (playing) watched += 250; delay(250) } }
+        LaunchedEffect(Unit) { while (true) { pos = pTime; len = pLen; playing = pPlaying; if (playing) watched += 250; delay(250) } }
         LaunchedEffect(show, playing) { if (show && playing) { delay(3500); show = false } }
         Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
             detectTapGestures(onTap = { show = !show }, onDoubleTap = { o ->
-                player.time = (player.time + if (o.x > size.width / 2) 10_000 else -10_000).coerceAtLeast(0)
+                pTime = (pTime + if (o.x > size.width / 2) 10_000 else -10_000).coerceAtLeast(0)
             })
         }) {
-            AndroidView({ c -> VLCVideoLayout(c).also { player.attachViews(it, null, true, false) } }, Modifier.fillMaxSize())
+            var exoView by remember { mutableStateOf<androidx.media3.ui.PlayerView?>(null) }
+            if (hw.value) AndroidView({ c -> androidx.media3.ui.PlayerView(c).also { v ->
+                    v.useController = false; v.player = exo; v.setBackgroundColor(android.graphics.Color.BLACK); exoView = v } },
+                Modifier.fillMaxSize(), update = { v -> v.player = exo })
+            else AndroidView({ c -> VLCVideoLayout(c).also { player.attachViews(it, null, true, false) } }, Modifier.fillMaxSize())
             // pinch out = zoom to fill the screen, pinch in = whole picture (like the YouTube app)
             var zoomMsg by remember { mutableStateOf<String?>(null) }
             Box(Modifier.fillMaxSize().pointerInput(Unit) {
@@ -335,7 +374,10 @@ class VideoActivity : ComponentActivity() {
             LaunchedEffect(zoomMsg) { if (zoomMsg != null) { delay(1200); zoomMsg = null } }
             zoomMsg?.let { Text(it, color = Color.White, fontSize = 16.sp, modifier = Modifier.align(Alignment.Center)
                 .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 16.dp, vertical = 8.dp)) }
-            LaunchedEffect(fill) { player.videoScale = if (fill) MediaPlayer.ScaleType.SURFACE_FIT_SCREEN else MediaPlayer.ScaleType.SURFACE_BEST_FIT }
+            LaunchedEffect(fill, exoView) {
+                if (hw.value) exoView?.resizeMode = if (fill) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                else player.videoScale = if (fill) MediaPlayer.ScaleType.SURFACE_FIT_SCREEN else MediaPlayer.ScaleType.SURFACE_BEST_FIT
+            }
             val accent = Color(Prefs(this@VideoActivity).accent)
             val posS = remember { mutableLongStateOf(0L) }; val durS = remember { mutableLongStateOf(0L) }
             LaunchedEffect(pos, len) { posS.longValue = pos; durS.longValue = len }
@@ -356,11 +398,11 @@ class VideoActivity : ComponentActivity() {
                     }
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
                         .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                        SeekBar(posS, durS, accent) { player.time = it }
+                        SeekBar(posS, durS, accent) { pTime = it }
                         TimeRow(posS, durS)
                         Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen, 44, outline = false) { fill = !fill }
-                            Btn(Icons.Rounded.Replay10, 56) { player.time = (player.time - 10_000).coerceAtLeast(0) }
+                            Btn(Icons.Rounded.Replay10, 56) { pTime = (pTime - 10_000).coerceAtLeast(0) }
                             // accent play button with a soft halo, like the music player
                             Box(Modifier.size(80.dp).pointerInput(Unit) { detectTapGestures { toggle() } }, contentAlignment = Alignment.Center) {
                                 Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent)), CircleShape))
@@ -369,7 +411,7 @@ class VideoActivity : ComponentActivity() {
                                     Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(36.dp))
                                 }
                             }
-                            Btn(Icons.Rounded.Forward10, 56) { player.time = player.time + 10_000 }
+                            Btn(Icons.Rounded.Forward10, 56) { pTime = pTime + 10_000 }
                             Row {
                                 Btn(Icons.Rounded.Headphones, 44, outline = false) { goAudioOnly() }
                                 Btn(Icons.Rounded.PictureInPictureAlt, 44, outline = false) { enterPip() }

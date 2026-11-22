@@ -196,9 +196,6 @@
         <!-- one launcher entry per accent colour; only the one matching the app theme is enabled -->
         <service android:name=".VideoService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <!-- video player: its own task so picture-in-picture can float over Grove's home -->
-        <activity android:name=".HdVideoActivity" android:exported="false" android:supportsPictureInPicture="true"
-            android:theme="@style/Theme.GroveMedia" android:resizeableActivity="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <activity android:name=".VideoActivity" android:exported="true"
             android:taskAffinity="com.grove.music.video" android:launchMode="singleTask"
             android:supportsPictureInPicture="true" android:resizeableActivity="true" android:excludeFromRecents="true"

@@ -2131,7 +2131,7 @@ private val CHANGES = listOf(
     "now playing" to "heart stays on the right, title uses the full width",
     "rescan" to "rescan library now covers music, videos, books and new comic chapters",
     "picture-in-picture" to "play / pause button in the floating video updates right away",
-    "4K / 8K video" to "very large videos play on the phone's hardware decoder (HEVC, AV1, 10-bit, HDR) — choose the engine in settings",
+    "4K / 8K video" to "4K / 8K videos use the phone's hardware decoder inside the same GroveMedia player — all controls stay",
     "hide" to "hide a video or show from its ••• menu, next to rename file",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
