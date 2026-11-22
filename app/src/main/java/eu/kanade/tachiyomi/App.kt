@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi
 
+import mihon.app.di.appGraph
+
 import android.annotation.SuppressLint
 import android.app.Application
 import android.app.PendingIntent
@@ -154,7 +156,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         }
         eu.kanade.tachiyomi.ui.grovemedia.MediaEmbed.install()
         com.grove.music.BookBridge.sql = { sql, cols ->
-            applicationContext.appGraph.sqlDriver.executeQuery(null, sql, { c ->
+            applicationContext.appGraph.sqlDriver.executeQuery(null, sql, { c: app.cash.sqldelight.db.SqlCursor ->
                 val out = ArrayList<Array<String?>>()
                 while (c.next().value) out += Array(cols) { i -> c.getString(i) }
                 app.cash.sqldelight.db.QueryResult.Value(out)

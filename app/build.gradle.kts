@@ -173,6 +173,7 @@ baselineProfile {
 dependencies {
     // GroveMedia music & video
     implementation(projects.media)
+    implementation(libs.bundles.sqldelight)
     baselineProfile(projects.baselineProfile)
 
     implementation(projects.i18n)
