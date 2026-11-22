@@ -368,15 +368,17 @@ class PlaybackService : MediaLibraryService() {
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { checkOutput(player, prefs) }
             override fun onMediaMetadataChanged(m: androidx.media3.common.MediaMetadata) {
-                Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, player.isPlaying)
+                Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, player.playWhenReady)
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 session?.setCustomLayout(buttons(player))
                 val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
                 prefs.saveQueue(ids, player.currentMediaItemIndex, 0)
             }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                player.mediaMetadata.let { m -> Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, playWhenReady) }
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                player.mediaMetadata.let { m -> Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, isPlaying) }
                 if (!isPlaying && player.mediaItemCount > 0) prefs.saveQueuePosition(player.currentMediaItemIndex, player.currentPosition)
             }
         })
@@ -584,7 +586,8 @@ class PlayerConnection(private val ctx: Context) {
 
     private fun sync(p: Player) {
         current.value = p.currentMediaItem
-        isPlaying.value = p.isPlaying
+        // follow what the user asked for (play / pause), not momentary buffering
+        isPlaying.value = p.playWhenReady && p.playbackState != Player.STATE_ENDED
         shuffle.value = p.shuffleModeEnabled
         repeatMode.intValue = p.repeatMode
         val t = p.currentTimeline
@@ -641,7 +644,7 @@ class PlayerConnection(private val ctx: Context) {
 
     fun playAt(index: Int) = run { it.seekTo(index, 0); it.play() }
     fun removeAt(index: Int) = run { if (index in 0 until it.mediaItemCount) it.removeMediaItem(index) }
-    fun playPause() = run { if (it.isPlaying) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0); it.play() } }
+    fun playPause() = run { if (it.playWhenReady && it.playbackState != Player.STATE_ENDED) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0); it.play() } }
     fun next() = run { it.seekToNext() }
     fun prev() = run { it.seekToPrevious() }
     fun seekTo(ms: Long) = run { it.seekTo(ms.coerceAtLeast(0)) }

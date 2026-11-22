@@ -86,7 +86,12 @@ class WidgetSquare : GroveWidget(R.layout.gm_widget_square)
 class PlayTile : TileService() {
     override fun onStartListening() { draw() }
     override fun onClick() {
+        val was = Widgets.playing(this)
         runCatching { Widgets.key(this, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE).send() }
+        // show the new state right away, then confirm once the player has switched
+        qsTile?.let { t -> t.state = if (was) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
+            t.icon = Icon.createWithResource(this, if (was) R.drawable.ic_n_play else R.drawable.ic_n_pause); t.updateTile() }
+        android.os.Handler(mainLooper).postDelayed({ draw() }, 800)
     }
     private fun draw() {
         val t = qsTile ?: return

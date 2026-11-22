@@ -603,7 +603,7 @@
         <service android:name=".PlayTile" android:exported="true" android:label="GroveMedia" android:icon="@drawable/ic_n_play"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
-            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="true" />
         </service>
         <receiver android:name="androidx.media3.session.MediaButtonReceiver" android:exported="true">
             <intent-filter>
