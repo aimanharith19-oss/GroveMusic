@@ -2,7 +2,6 @@ package com.grove.music
 
 import android.content.Context
 import android.content.Intent
-import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import java.io.File
 import java.security.MessageDigest
@@ -16,6 +15,8 @@ object BookBridge {
     var embed: (@androidx.compose.runtime.Composable (String, androidx.compose.ui.Modifier) -> Unit)? = null
     /** true while a Grove Book screen has opened something on top (a book, settings…) — GroveMedia then hides its headers */
     val deep = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    /** runs a read-only query on Grove Book's own database connection; rows of strings */
+    var sql: ((String, Int) -> List<Array<String?>>)? = null
 }
 
 data class BookRead(
@@ -34,47 +35,32 @@ object Books {
         return if (f.exists()) f else url
     }
 
+    private fun rows(q: String, cols: Int): List<Array<String?>> = runCatching { BookBridge.sql?.invoke(q, cols) }.getOrNull().orEmpty()
+
     /** every history row, newest first */
-    fun history(ctx: Context): List<BookRead> = runCatching {
-        val path = ctx.getDatabasePath("tachiyomi.db"); if (!path.exists()) return emptyList()
-        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("""
-                SELECT m._id, m.title, m.thumbnail_url, c._id, c.name, h.history_last_read, h.history_time_read
-                FROM history h JOIN chapters c ON c._id = h.history_chapter_id JOIN mangas m ON m._id = c.manga_id
-                ORDER BY h.history_last_read DESC""".trimIndent(), null).use { c ->
-                val out = ArrayList<BookRead>()
-                while (c.moveToNext()) out += BookRead(c.getLong(0), c.getString(1) ?: "", cover(ctx, c.getString(2)), c.getLong(3),
-                    c.getString(4) ?: "", c.getLong(5), c.getLong(6))
-                out
-            }
-        }
-    }.getOrDefault(emptyList())
+    fun history(ctx: Context): List<BookRead> = rows("""
+        SELECT m.id, COALESCE(m.user_title, m.remote_title), m.remote_cover, c.id, c.remote_name, h.read_at, h.read_duration
+        FROM history h JOIN chapter c ON c.id = h.chapter_id JOIN manga m ON m.id = h.manga_id
+        ORDER BY h.read_at DESC""".trimIndent(), 7).map { r ->
+        BookRead(r[0]?.toLongOrNull() ?: 0, r[1] ?: "", cover(ctx, r[2]), r[3]?.toLongOrNull() ?: 0, r[4] ?: "",
+            r[5]?.toLongOrNull() ?: 0, r[6]?.toLongOrNull() ?: 0)
+    }
 
     data class Lib(val id: Long, val title: String, val cover: Any?, val unread: Int)
 
     /** books in the library (favourites), A–Z, with unread chapter count */
-    fun library(ctx: Context): List<Lib> = runCatching {
-        val path = ctx.getDatabasePath("tachiyomi.db"); if (!path.exists()) return emptyList()
-        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("""
-                SELECT m._id, m.title, m.thumbnail_url,
-                  (SELECT COUNT(*) FROM chapters c WHERE c.manga_id = m._id AND c.read = 0)
-                FROM mangas m WHERE m.favorite = 1 ORDER BY m.title COLLATE NOCASE""".trimIndent(), null).use { c ->
-                val out = ArrayList<Lib>()
-                while (c.moveToNext()) out += Lib(c.getLong(0), c.getString(1) ?: "", cover(ctx, c.getString(2)), c.getInt(3))
-                out
-            }
-        }
-    }.getOrDefault(emptyList())
+    fun library(ctx: Context): List<Lib> = rows("""
+        SELECT m.id, COALESCE(m.user_title, m.remote_title), m.remote_cover,
+          (SELECT COUNT(*) FROM chapter c WHERE c.manga_id = m.id AND c.user_read = 0)
+        FROM manga m WHERE m.user_favorite_at IS NOT NULL ORDER BY 2 COLLATE NOCASE""".trimIndent(), 4).map { r ->
+        Lib(r[0]?.toLongOrNull() ?: 0, r[1] ?: "", cover(ctx, r[2]), r[3]?.toIntOrNull() ?: 0)
+    }
 
     /** unread chapters fetched in the last week for books in the library (the "updates" badge) */
-    fun newChapters(ctx: Context): Int = runCatching {
-        val path = ctx.getDatabasePath("tachiyomi.db"); if (!path.exists()) return 0
-        SQLiteDatabase.openDatabase(path.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("SELECT COUNT(*) FROM chapters c JOIN mangas m ON m._id = c.manga_id WHERE m.favorite = 1 AND c.read = 0 AND c.date_fetch > ?",
-                arrayOf((System.currentTimeMillis() - 7L * 86_400_000).toString())).use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
-        }
-    }.getOrDefault(0)
+    fun newChapters(ctx: Context): Int = rows("""
+        SELECT COUNT(*) FROM chapter c JOIN manga m ON m.id = c.manga_id
+        WHERE m.user_favorite_at IS NOT NULL AND c.user_read = 0 AND c.state_date_fetch > ${System.currentTimeMillis() - 7L * 86_400_000}""".trimIndent(), 1)
+        .firstOrNull()?.get(0)?.toIntOrNull() ?: 0
 
     /** last read chapter of each book, newest first */
     fun recent(ctx: Context, n: Int = 15) = history(ctx).filter { it.lastRead > 0 }.distinctBy { it.mangaId }.take(n)

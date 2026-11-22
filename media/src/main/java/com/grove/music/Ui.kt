@@ -2074,6 +2074,7 @@ private val CHANGES = listOf(
     "android auto" to "browse playlists, mixes and songs in the car",
     "backup" to "back up and restore your comics library, sources and settings",
     "new look" to "new GroveMedia icon and name everywhere — installer, app info, notifications",
+    "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
 

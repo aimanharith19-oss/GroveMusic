@@ -153,6 +153,13 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 eu.kanade.tachiyomi.data.backup.create.BackupOptions(privateSettings = true))
         }
         eu.kanade.tachiyomi.ui.grovemedia.MediaEmbed.install()
+        com.grove.music.BookBridge.sql = { sql, cols ->
+            applicationContext.appGraph.sqlDriver.executeQuery(null, sql, { c ->
+                val out = ArrayList<Array<String?>>()
+                while (c.next().value) out += Array(cols) { i -> c.getString(i) }
+                app.cash.sqldelight.db.QueryResult.Value(out)
+            }, 0).value
+        }
         com.grove.music.BookBridge.restore = { ctx, uri ->
             eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker.start(
                 androidx.work.WorkManager.getInstance(ctx), uri, eu.kanade.tachiyomi.data.backup.restore.RestoreOptions())

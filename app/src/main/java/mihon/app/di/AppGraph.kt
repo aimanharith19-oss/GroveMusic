@@ -87,6 +87,8 @@ import tachiyomi.domain.track.interactor.UpsertTrack
     // SY <--
 )
 interface AppGraph : ViewModelGraph {
+    /** GroveMedia reads the books database through this same connection (never a second one) */
+    val sqlDriver: app.cash.sqldelight.db.SqlDriver
     fun inject(app: App)
     fun inject(mainActivity: MainActivity)
     fun inject(readerActivity: ReaderActivity)
