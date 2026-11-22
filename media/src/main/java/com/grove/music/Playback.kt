@@ -140,17 +140,19 @@ class PlaybackService : MediaLibraryService() {
                         val song = byId()[item.mediaId]
                         lyrics = LyricsRepository.load(this@PlaybackService, trackKey(item, song, player.duration.coerceAtLeast(0)))
                     }
+                    // the line being sung becomes the big title, the next line goes under it, the song name moves down small
                     val l = lyrics
-                    val line = if (l != null && l.synced) {
+                    val song = byId()[item.mediaId]
+                    val name = song?.title ?: item.mediaMetadata.title?.toString().orEmpty()
+                    val artist = song?.artist ?: item.mediaMetadata.artist?.toString().orEmpty()
+                    val want = if (l != null && l.synced) {
                         val i = l.lines.indexOfLast { it.time <= player.currentPosition + 200 }
-                        l.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() }?.let { "♪ $it" }
-                    } else null
-                    val artist = byId()[item.mediaId]?.artist ?: item.mediaMetadata.artist?.toString()
-                    val want = line ?: artist
-                    if (want != shown && want != null) {
-                        shown = want
-                        setArtistLine(player, want)
-                    }
+                        val cur = l.lines.getOrNull(i)?.text?.takeIf { it.isNotBlank() } ?: if (i < 0) name else "♪"
+                        val next = l.lines.drop(i + 1).firstOrNull { it.text.isNotBlank() }?.text
+                        Triple(cur, next?.let { "↓ $it" } ?: artist, "$name · $artist")
+                    } else Triple(name, artist, song?.album ?: item.mediaMetadata.albumTitle?.toString().orEmpty())
+                    val key = want.toString()
+                    if (key != shown) { shown = key; setCarLines(player, want.first, want.second, want.third) }
                 }
                 kotlinx.coroutines.delay(250)
             }
@@ -160,7 +162,16 @@ class PlaybackService : MediaLibraryService() {
     private fun stopCarLyrics(player: Player) {
         lyricJob?.cancel(); lyricJob = null
         val item = player.currentMediaItem ?: return
-        byId()[item.mediaId]?.artist?.let { setArtistLine(player, it) }
+        byId()[item.mediaId]?.let { setCarLines(player, it.title, it.artist, it.album) }
+    }
+
+    private fun setCarLines(player: Player, title: String, artist: String, album: String) {
+        val idx = player.currentMediaItemIndex
+        val item = player.currentMediaItem ?: return
+        val m = item.mediaMetadata
+        if (m.title?.toString() == title && m.artist?.toString() == artist && m.albumTitle?.toString() == album) return
+        player.replaceMediaItem(idx, item.buildUpon().setMediaMetadata(m.buildUpon().setTitle(title).setDisplayTitle(title)
+            .setArtist(artist).setAlbumTitle(album).build()).build())
     }
 
     private fun setArtistLine(player: Player, text: String) {

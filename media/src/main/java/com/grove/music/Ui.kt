@@ -1966,7 +1966,7 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("lyrics in Android Auto", color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
-                Text("show the line being sung under the song title in the car", color = Dim, fontSize = 14.sp)
+                Text("in the car, the line being sung shows big as the title with the next line under it", color = Dim, fontSize = 14.sp)
             }
             Switch(carLyrics, { carLyrics = it; prefs.carLyrics = it },
                 colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
@@ -2140,6 +2140,7 @@ private val CHANGES = listOf(
     "4K / 8K video" to "4K / 8K videos use the phone's hardware decoder inside the same GroveMedia player — all controls stay",
     "hide" to "hide a video or show from its ••• menu, next to rename file",
     "every format" to "plays everything VLC plays (mkv, avi, rmvb, vob, iso, ts, webm, wmv…); optional all-files access finds unlisted videos",
+    "car lyrics" to "Android Auto shows the line being sung big, with the next line under it",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
