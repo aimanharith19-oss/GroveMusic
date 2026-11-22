@@ -100,7 +100,10 @@ object MusicRepository {
                 )
             }
         }
-        return out
+        // DSD: wrap any Android indexed, then add the ones it didn't (and the picked DSD folders)
+        val names = HashSet<String>()
+        val fixed = out.map { if (Dsd.isDsdName(it.displayName)) { names += it.displayName; it.copy(uri = Dsd.wrap(it.uri, it.displayName), mime = "audio/dsd") } else it }
+        return (fixed + runCatching { Dsd.songs(ctx) }.getOrDefault(emptyList()).filter { it.displayName !in names }).sortedBy { it.title.lowercase() }
     }
 
     private fun String?.clean(def: String) =
@@ -314,6 +317,18 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("mix_salt", 0)
         set(v) = sp.edit().putInt("mix_salt", v).apply()
     /** crossfade length in seconds (0 = off) */
+    var bitPerfect: Boolean
+        get() = sp.getBoolean("bit_perfect", false)
+        set(v) = sp.edit().putBoolean("bit_perfect", v).apply()
+    var hiRes: Boolean
+        get() = sp.getBoolean("hi_res", true)
+        set(v) = sp.edit().putBoolean("hi_res", v).apply()
+    var gaplessAlbums: Boolean
+        get() = sp.getBoolean("gapless_albums", true)
+        set(v) = sp.edit().putBoolean("gapless_albums", v).apply()
+    var iconStyle: String
+        get() = sp.getString("icon_style", "colour") ?: "colour"
+        set(v) = sp.edit().putString("icon_style", v).apply()
     var crossfade: Int
         get() = sp.getInt("crossfade", 0)
         set(v) = sp.edit().putInt("crossfade", v).apply()

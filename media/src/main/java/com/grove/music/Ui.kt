@@ -1992,6 +1992,44 @@ fun SettingsScreen(vm: MusicViewModel, prefs: Prefs, accent: Color, onAccent: (I
                 } else vm.fixMissing(list)
             }
         }
+        // ── sound: bit-perfect, hi-res, gapless, DSD
+        SectionLabel("sound", accent, Modifier.padding(top = 18.dp))
+        @Composable fun Toggle(title: String, sub: String, init: Boolean, set: (Boolean) -> Unit) {
+            var v by remember { mutableStateOf(init) }
+            Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = White, fontSize = 22.sp, fontWeight = FontWeight.Light)
+                    Text(sub, color = Dim, fontSize = 14.sp)
+                }
+                Switch(v, { v = it; set(it) }, colors = SwitchDefaults.colors(checkedTrackColor = accent, checkedThumbColor = White))
+            }
+        }
+        Toggle("bit-perfect USB DAC", "send music untouched to a USB DAC at the song's own sample rate (Android 14+). Volume is then set on the DAC; crossfade pauses",
+            prefs.bitPerfect) { prefs.bitPerfect = it }
+        Toggle("hi-res audio path", "keep 24-bit and high sample rates all the way to USB DACs and LDAC / aptX Lossless / LE Audio earbuds instead of cutting to 16-bit. Applies after reopening GroveMedia",
+            prefs.hiRes) { prefs.hiRes = it }
+        Toggle("gapless albums", "songs from the same album play straight into each other without a fade", prefs.gaplessAlbums) { prefs.gaplessAlbums = it }
+        var dsdDirs by remember { mutableStateOf(Dsd.folders(ctx)) }
+        val pickDsd = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { u ->
+            if (u != null) { Dsd.addFolder(ctx, u); dsdDirs = Dsd.folders(ctx); vm.load() }
+        }
+        SettingItem("DSD folders", if (dsdDirs.isEmpty()) "add a folder with .dsf / .dff files (DSD64–DSD512 play as 24-bit PCM)" else "${dsdDirs.size} folder(s) · tap to add another") { pickDsd.launch(null) }
+        dsdDirs.forEach { u ->
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(Uri.decode(u.lastPathSegment ?: "").substringAfterLast(':'), color = Dim, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Text("remove", color = accent, fontSize = 14.sp, modifier = Modifier.tilt { Dsd.removeFolder(ctx, u); dsdDirs = Dsd.folders(ctx); vm.load() }.padding(6.dp))
+            }
+        }
+        // ── icon style
+        SectionLabel("icon style", accent, Modifier.padding(top = 18.dp))
+        var iconStyle by remember { mutableStateOf(prefs.iconStyle) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+            IconSwitcher.styles.forEach { st ->
+                Text(st, color = White, fontSize = 15.sp, modifier = Modifier.background(if (iconStyle == st) accent else Color.White.copy(alpha = 0.08f))
+                    .tilt { iconStyle = st; prefs.iconStyle = st; IconSwitcher.apply(ctx, prefs.accent) }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }
+        Text("colour follows your accent; neon, mono and glass are fixed styles. The launcher may take a moment to update.", color = Dim, fontSize = 12.sp)
         // ── artist info
         val sync = vm.artistSync.value
         val tick = vm.artistTick.intValue
@@ -2074,6 +2112,11 @@ private val CHANGES = listOf(
     "android auto" to "browse playlists, mixes and songs in the car",
     "backup" to "back up and restore your comics library, sources and settings",
     "new look" to "new GroveMedia icon and name everywhere — installer, app info, notifications",
+    "sound" to "bit-perfect USB DAC output, hi-res 24-bit path for USB DACs and lossless earbuds, gapless albums",
+    "DSD" to "plays .dsf / .dff (DSD64–DSD512) as 24-bit PCM, from your music or picked folders",
+    "A-B loop" to "repeat any part of a song from the now playing screen",
+    "widgets" to "pill, wide and square home screen widgets plus a quick settings play tile",
+    "icon styles" to "colour, neon, mono and glass app icons",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )
@@ -2353,6 +2396,27 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             Spacer(Modifier.height(4.dp))
             SeekBar(posS, durS, accent, conn::seekTo)
             TimeRow(posS, durS)
+            // output info + A-B loop
+            var la by remember(md.title) { mutableStateOf<Long?>(null) }
+            var lb by remember(md.title) { mutableStateOf<Long?>(null) }
+            LaunchedEffect(la, lb) {
+                val x = la; val y = lb
+                if (x != null && y != null) while (true) { if (posS.longValue >= y) conn.seekTo(x); delay(60) }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(AudioOut.status.value, color = Dim, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                val loopOn = la != null && lb != null
+                Text(if (la == null) "A" else "A ${la!! / 60000}:${"%02d".format(la!! / 1000 % 60)}", color = if (la != null) White else Dim, fontSize = 13.sp,
+                    modifier = Modifier.background(if (loopOn) accent else Color.White.copy(alpha = 0.08f)).tilt {
+                        if (la == null) la = posS.longValue else { la = null; lb = null }
+                    }.padding(horizontal = 10.dp, vertical = 4.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (lb == null) "B" else "loop", color = if (lb != null) White else Dim, fontSize = 13.sp,
+                    modifier = Modifier.background(if (loopOn) accent else Color.White.copy(alpha = 0.08f)).tilt {
+                        val x = la
+                        if (lb != null) { la = null; lb = null } else if (x != null && posS.longValue > x + 500) lb = posS.longValue
+                    }.padding(horizontal = 10.dp, vertical = 4.dp))
+            }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 ToggleIcon(Icons.Rounded.Shuffle, conn.shuffle.value, accent) { conn.toggleShuffle() }

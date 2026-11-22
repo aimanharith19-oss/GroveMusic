@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- GroveMedia: a G holding a book (comics & books), a note (music) and play (video) -->
+    <group android:translateX="12.75" android:translateY="12.75" android:scaleX="0.75" android:scaleY="0.75">
+        <path android:pathData="M87,35 A36,36 0 1,0 87,75" android:strokeColor="#FF17D47F" android:strokeWidth="12" android:strokeLineCap="round" />
+        <path android:fillColor="#FFF0A30A" android:pathData="M63,61 Q75,56 75,61 Q75,56 87,61 V77 Q75,72 75,77 Q75,72 63,77 Z" />
+        <path android:fillColor="#FF17D47F" android:pathData="M41,45 L57,55 L41,65 Z" />
+        <path android:pathData="M65,51 V37 L75,34 V46" android:strokeColor="#FF1BA1E2" android:strokeWidth="3" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:fillColor="#FF1BA1E2" android:pathData="M58.5,52 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0z" />
+        <path android:fillColor="#FF1BA1E2" android:pathData="M68.5,47 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0z" />
+    </group>
+</vector>

@@ -390,6 +390,30 @@
                 <data android:scheme="mms" />
             </intent-filter>
         </activity>
+        <activity-alias android:name=".IconStyleNeon" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/gm_launcher_neon" android:roundIcon="@mipmap/gm_launcher_neon" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconStyleMono" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/gm_launcher_mono" android:roundIcon="@mipmap/gm_launcher_mono" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".IconStyleGlass" android:targetActivity=".MainActivity" android:exported="true"
+            android:icon="@mipmap/gm_launcher_glass" android:roundIcon="@mipmap/gm_launcher_glass" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
         <activity-alias android:name=".Icon0" android:targetActivity=".MainActivity" android:exported="true"
             android:icon="@mipmap/gm_launcher_0" android:roundIcon="@mipmap/gm_launcher_0" android:enabled="false">
             <intent-filter>
@@ -564,6 +588,23 @@
         <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
         <provider android:name=".ArtProvider" android:authorities="com.grove.music.art" android:exported="true" />
         <!-- headset / Bluetooth play button and system "resume" work even when Grove is closed -->
+        <receiver android:name=".WidgetPill" android:exported="false" android:label="GroveMedia · pill">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_pill" />
+        </receiver>
+        <receiver android:name=".WidgetWide" android:exported="false" android:label="GroveMedia · wide">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_wide" />
+        </receiver>
+        <receiver android:name=".WidgetSquare" android:exported="false" android:label="GroveMedia · square">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_square" />
+        </receiver>
+        <service android:name=".PlayTile" android:exported="true" android:label="GroveMedia" android:icon="@drawable/ic_n_play"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+        </service>
         <receiver android:name="androidx.media3.session.MediaButtonReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />

@@ -208,7 +208,7 @@ class PlaybackService : MediaLibraryService() {
         val f = fader
         val ms = xPrefs.crossfade * 1000L
         val item = player.currentMediaItem
-        if (f == null || ms <= 0 || !player.isPlaying || item == null) { skip(); return }
+        if (f == null || ms <= 0 || perfectNow || !player.isPlaying || item == null) { skip(); return }
         blendJob?.cancel(); f.stop(); player.volume = 1f
         val from = player.currentPosition
         blendJob = scope.launch {
@@ -235,7 +235,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun startCrossfade(player: ExoPlayer, prefs: Prefs) {
         xPrefs = prefs
-        fader = ExoPlayer.Builder(this).setAudioAttributes(
+        fader = ExoPlayer.Builder(this, renderers(prefs)).setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(GroveDataSource.Factory(this))).setAudioAttributes(
             AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), false
         ).build()
         // automatic: near the end of a song
@@ -243,7 +243,12 @@ class PlaybackService : MediaLibraryService() {
             while (true) {
                 kotlinx.coroutines.delay(100)
                 val ms = prefs.crossfade * 1000L
-                if (ms <= 0 || !player.isPlaying || blendJob?.isActive == true || player.repeatMode == Player.REPEAT_MODE_ONE || !player.hasNextMediaItem()) continue
+                if (ms <= 0 || perfectNow || !player.isPlaying || blendJob?.isActive == true || player.repeatMode == Player.REPEAT_MODE_ONE || !player.hasNextMediaItem()) continue
+                // gapless albums: songs of the same album flow straight into each other, no fade
+                if (prefs.gaplessAlbums && !player.shuffleModeEnabled) {
+                    val next = player.getMediaItemAt(player.nextMediaItemIndex).mediaMetadata.albumTitle
+                    if (next != null && next == player.mediaMetadata.albumTitle && next != "unknown album") continue
+                }
                 val dur = player.duration
                 if (dur <= 0 || dur < ms * 2 || dur - player.currentPosition > ms) continue
                 blend(player) { player.seekToNextMediaItem() }
@@ -285,9 +290,31 @@ class PlaybackService : MediaLibraryService() {
         }.toMutableList()
     }
 
+    /** true while a USB DAC plays bit-perfect: no software volume, so no crossfade */
+    @Volatile private var perfectNow = false
+
+    private fun renderers(prefs: Prefs) = androidx.media3.exoplayer.DefaultRenderersFactory(this)
+        .setEnableAudioFloatOutput(prefs.hiRes || prefs.bitPerfect)
+
+    /** output check: bit-perfect USB, hi-res path, and what the now-playing screen shows */
+    private fun checkOutput(player: ExoPlayer, prefs: Prefs) {
+        val f = player.audioFormat
+        val dsd = player.currentMediaItem?.localConfiguration?.uri?.scheme == Dsd.SCHEME
+        val bits = when (f?.pcmEncoding) {
+            C.ENCODING_PCM_16BIT -> 16; C.ENCODING_PCM_24BIT -> 24; C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 32
+            else -> if (dsd) 24 else 0
+        }
+        val rate = f?.sampleRate?.takeIf { it > 0 } ?: 0
+        perfectNow = AudioOut.update(this, prefs, rate, bits, prefs.hiRes || prefs.bitPerfect,
+            if (dsd && rate > 0) "DSD → ${rate / 1000.0} kHz 24-bit" else "")
+        if (perfectNow) player.volume = 1f
+    }
+
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this)
+        val prefs0 = Prefs(this)
+        val player = ExoPlayer.Builder(this, renderers(prefs0))
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(GroveDataSource.Factory(this)))
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
                 true
@@ -313,14 +340,24 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         watchMute(player, prefs)
+        // re-check bit-perfect / hi-res when a DAC or earbuds are plugged in or removed
+        getSystemService(android.media.AudioManager::class.java).registerAudioDeviceCallback(object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(d: Array<out android.media.AudioDeviceInfo>?) { checkOutput(player, prefs) }
+            override fun onAudioDevicesRemoved(d: Array<out android.media.AudioDeviceInfo>?) { checkOutput(player, prefs) }
+        }, android.os.Handler(android.os.Looper.getMainLooper()))
         // remember the queue so Android can offer "resume" in the media controls later
         player.addListener(object : Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { checkOutput(player, prefs) }
+            override fun onMediaMetadataChanged(m: androidx.media3.common.MediaMetadata) {
+                Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, player.isPlaying)
+            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 session?.setCustomLayout(buttons(player))
                 val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
                 prefs.saveQueue(ids, player.currentMediaItemIndex, 0)
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                player.mediaMetadata.let { m -> Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, isPlaying) }
                 if (!isPlaying && player.mediaItemCount > 0) prefs.saveQueuePosition(player.currentMediaItemIndex, player.currentPosition)
             }
         })
