@@ -2164,6 +2164,7 @@ private val CHANGES = listOf(
     "car lyrics" to "Android Auto shows the line being sung big, with the next line under it",
     "mini player" to "swipe now playing or a video down to shrink it, like YouTube",
     "stays put" to "reopening GroveMedia keeps your tab and sub-tab, until the app is force-closed",
+    "watch progress" to "videos show a progress line of how far you've watched",
     "stability" to "fixed random crashes — comics data is now read through Grove Book's own connection",
     "crash report" to "if GroveMedia closes unexpectedly, the reason shows next time you open it",
 )

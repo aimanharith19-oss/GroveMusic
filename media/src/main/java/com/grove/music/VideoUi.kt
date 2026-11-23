@@ -63,6 +63,14 @@ fun VideoThumb(v: Video, modifier: Modifier) {
     Box(modifier.background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
         bmp?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()) }
             ?: Icon(Icons.Rounded.Movie, null, tint = D)
+        // how far you've watched (resume point), like YouTube's red line
+        val pos = remember(v.id) { if (v.id > 0) ctx.getSharedPreferences("video_pos", Context.MODE_PRIVATE).getLong(v.id.toString(), 0) else 0L }
+        if (pos > 5000 && v.duration > 0) {
+            val accent = remember { Color(Prefs(ctx).accent) }
+            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f))) {
+                Box(Modifier.fillMaxWidth((pos.toFloat() / v.duration).coerceIn(0.03f, 1f)).fillMaxHeight().background(accent))
+            }
+        }
     }
 }
 
