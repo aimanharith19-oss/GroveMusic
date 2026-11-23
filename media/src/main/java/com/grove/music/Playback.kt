@@ -320,6 +320,24 @@ class PlaybackService : MediaLibraryService() {
         }.toMutableList()
     }
 
+    /**
+     * The classic "music player" broadcasts (what VLC and the stock music app send). Some phone panels —
+     * Nubia / ZTE control centre, scrobblers, car head units — read the song from these instead of the media session.
+     */
+    private fun musicBroadcast(player: Player, action: String) {
+        val m = player.mediaMetadata
+        val item = player.currentMediaItem ?: return
+        val i = android.content.Intent(action).apply {
+            putExtra("id", item.mediaId.toLongOrNull() ?: 0L)
+            putExtra("track", m.title?.toString()); putExtra("artist", m.artist?.toString()); putExtra("album", m.albumTitle?.toString())
+            putExtra("playing", player.playWhenReady); putExtra("isplaying", player.playWhenReady)
+            putExtra("duration", player.duration.coerceAtLeast(0)); putExtra("position", player.currentPosition)
+            putExtra("package", packageName); putExtra("player", "GroveMedia"); putExtra("scrobbling_source", packageName)
+        }
+        runCatching { sendBroadcast(i) }
+        runCatching { sendBroadcast(android.content.Intent(i).setAction(action.replace("com.android.music", "com.android.music.ext"))) }
+    }
+
     /** true while a USB DAC plays bit-perfect: no software volume, so no crossfade */
     @Volatile private var perfectNow = false
 
@@ -379,6 +397,7 @@ class PlaybackService : MediaLibraryService() {
         player.addListener(object : Player.Listener {
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) { checkOutput(player, prefs) }
             override fun onMediaMetadataChanged(m: androidx.media3.common.MediaMetadata) {
+                musicBroadcast(player, "com.android.music.metachanged")
                 Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, player.playWhenReady)
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -387,6 +406,7 @@ class PlaybackService : MediaLibraryService() {
                 prefs.saveQueue(ids, player.currentMediaItemIndex, 0)
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                musicBroadcast(player, "com.android.music.playstatechanged")
                 player.mediaMetadata.let { m -> Widgets.save(this@PlaybackService, m.title?.toString(), m.artist?.toString(), m.artworkUri, playWhenReady) }
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
