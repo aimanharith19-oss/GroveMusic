@@ -513,6 +513,19 @@ class PlaybackService : MediaLibraryService() {
                 return Futures.immediateFuture(MediaSession.MediaItemsWithStartPosition(items, start, pos))
             }
         }).setSessionActivity(open).build()
+        // system / OEM music panels (Nubia & ZTE control centre, lock screen) look for a "transport" media notification
+        setMediaNotificationProvider(object : androidx.media3.session.MediaNotification.Provider {
+            private val d = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this@PlaybackService).build()
+            private fun tag(n: androidx.media3.session.MediaNotification) = n.also {
+                it.notification.category = android.app.Notification.CATEGORY_TRANSPORT
+                it.notification.visibility = android.app.Notification.VISIBILITY_PUBLIC
+            }
+            override fun createNotification(session: MediaSession, customLayout: com.google.common.collect.ImmutableList<androidx.media3.session.CommandButton>,
+                actionFactory: androidx.media3.session.MediaNotification.ActionFactory,
+                onNotificationChangedCallback: androidx.media3.session.MediaNotification.Provider.Callback) =
+                tag(d.createNotification(session, customLayout, actionFactory) { n -> onNotificationChangedCallback.onNotificationChanged(tag(n)) })
+            override fun handleCustomCommand(session: MediaSession, action: String, extras: Bundle) = d.handleCustomCommand(session, action, extras)
+        })
         // keep the notification heart in step when a song is liked inside the app
         scope.launch {
             androidx.compose.runtime.snapshotFlow { PlaylistStore.get(this@PlaybackService).liked.ids }
