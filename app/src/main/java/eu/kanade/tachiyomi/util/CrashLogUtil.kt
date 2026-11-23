@@ -34,7 +34,7 @@ class CrashLogUtil(
 
     suspend fun dumpLogs(exception: Throwable? = null) = withContext(Dispatchers.IO) {
         try {
-            val file = context.createFileInCacheDir(/* SY --> */"tachiyomi_sy_crash_logs.txt"/* SY <-- */)
+            val file = context.createFileInCacheDir(/* SY --> */"grovemedia_crash_logs.txt"/* SY <-- */)
 
             file.appendText(getDebugInfo() + "\n\n")
             getExtensionsInfo()?.let { file.appendText("$it\n\n") }

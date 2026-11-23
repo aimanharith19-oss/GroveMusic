@@ -717,8 +717,8 @@ fun BackupBox(accent: Color, modifier: Modifier = Modifier) {
     Column(modifier) {
         SectionLabel("backup & restore", accent)
         val items = listOf(
-            Triple("back up books", "library, history, sources & their settings", { bookOut.launch("grovemedia_books_$stamp.tachibk") }),
-            Triple("restore books", "from a GroveMedia or Grove Book backup (.tachibk)", { bookIn.launch(arrayOf("*/*")) }),
+            Triple("back up books", "library, history, sources & their settings", { bookOut.launch("GroveMedia_comics_$stamp.gmbk") }),
+            Triple("restore books", "from a GroveMedia (.gmbk) or older Grove Book (.tachibk) backup", { bookIn.launch(arrayOf("*/*")) }),
         )
         items.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
