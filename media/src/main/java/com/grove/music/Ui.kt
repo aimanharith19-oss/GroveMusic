@@ -637,7 +637,7 @@ fun HomeScreen(
                 }
                 "videos" -> VideosPage(vm, accent, open)
                 "comics" -> ComicsPage(accent)
-                "book" -> key(BookBridge.tick.intValue) { BookBridge.embed?.invoke("book", Modifier.fillMaxSize()) }
+                "book" -> ShelfLibraryScreen("book", accent, Modifier.fillMaxSize())
                 "stats" -> StatsPage(vm, accent)
             }
         }
@@ -769,19 +769,10 @@ fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) ->
 /** Comics: Grove Book's library, updates, history, browse and more right here. */
 @Composable
 fun ComicsPage(accent: Color) {
-    val ctx = LocalContext.current
     var sub by rememberTab("comics", "library")
-    var updates by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) { updates = withContext(Dispatchers.IO) { Books.newChapters(ctx) } }
-    val deep = BookBridge.deep.values.any { it }
     Column(Modifier.fillMaxSize()) {
-        AnimatedVisibility(!deep) {
-            Column {
-                SubPivot(listOf("library", "updates", "history", "browse", "more"), sub, accent, { if (it == "updates") updates else 0 }) { sub = it }
-                if (sub == "library") ContinueReading(accent, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp))
-            }
-        }
-        key(sub) { BookBridge.embed?.invoke(sub, Modifier.weight(1f).fillMaxWidth()) }
+        SubPivot(listOf("library"), sub, accent, { 0 }) { sub = it }
+        ShelfLibraryScreen("comic", accent, Modifier.weight(1f).fillMaxWidth())
     }
 }
 
