@@ -769,10 +769,29 @@ fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) ->
 /** Comics: Grove Book's library, updates, history, browse and more right here. */
 @Composable
 fun ComicsPage(accent: Color) {
+    val ctx = LocalContext.current
     var sub by rememberTab("comics", "library")
+    // a comic opened from library / updates / history shows its page on top of that tab
+    var opened by remember { mutableStateOf<OManga?>(null) }
+    var deep by remember { mutableStateOf(false) }
+    var newCount by remember { mutableStateOf(0) }
+    LaunchedEffect(sub, opened) { newCount = withContext(Dispatchers.IO) { ShelfDb(ctx).onlineAll().sumOf { it.newCount } } }
     Column(Modifier.fillMaxSize()) {
-        SubPivot(listOf("library"), sub, accent, { 0 }) { sub = it }
-        ShelfLibraryScreen("comic", accent, Modifier.weight(1f).fillMaxWidth())
+        AnimatedVisibility(!deep && opened == null) {
+            SubPivot(listOf("library", "updates", "history", "browse", "files"), sub, accent, { if (it == "updates") newCount else 0 }) { sub = it; opened = null }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            val o = opened
+            if (o != null) key(o.source, o.url) {
+                OnlineBrowse(accent, start = o) { if (!it) opened = null }
+            } else when (sub) {
+                "updates" -> OnlineUpdatesScreen(accent) { opened = it }
+                "history" -> OnlineHistoryScreen(accent) { opened = it }
+                "browse" -> OnlineBrowse(accent) { deep = it }
+                "files" -> ShelfLibraryScreen("comic", accent)
+                else -> OnlineLibrary(accent) { opened = it }
+            }
+        }
     }
 }
 
