@@ -246,7 +246,7 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                     is Screen.Artist -> ArtistScreen(s.name, vm, conn, accent, open)
                     is Screen.Detail -> DetailScreen(s, conn, accent, open)
                     Screen.Search -> SearchScreen(vm, conn, accent, open)
-                    is Screen.VideoInfo -> VideoInfoScreen(s.id, vm, accent, open)
+                    is Screen.VideoInfo -> VideoInfoScreen(s.id, vm, accent, open) { forward = false; stack = stack.dropLast(1) }
                     is Screen.Show -> ShowScreen(s.name, vm, accent, open)
                     is Screen.PersonView -> PersonScreen(s.id, vm, accent, open)
                     is Screen.EditTags -> EditTagsScreen(s.songId, vm, accent) { forward = false; stack = stack.dropLast(1) }

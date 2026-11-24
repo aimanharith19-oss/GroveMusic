@@ -417,9 +417,13 @@ private fun CastRow(cast: List<CastMember>, accent: Color, open: (Screen) -> Uni
 
 /** One movie / video: poster, info, cast, play, rename file. */
 @Composable
-fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
+fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) -> Unit, gone: () -> Unit = {}) {
     val ctx = LocalContext.current
-    val v = vm.videos.value.firstOrNull { it.id == id } ?: return
+    val v = vm.videos.value.firstOrNull { it.id == id } ?: run {
+        // hidden (or removed) while this page was open: step back instead of staying blank
+        LaunchedEffect(id) { gone() }
+        return
+    }
     var again by remember { mutableIntStateOf(0) }
     val t by produceState<Title?>(null, id, again) { value = VideoMeta.movieFor(ctx, v) }
     var searching by remember { mutableStateOf(false) }

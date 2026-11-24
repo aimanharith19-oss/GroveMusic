@@ -154,6 +154,8 @@ class SecureActivityDelegateImpl : SecureActivityDelegate, DefaultLifecycleObser
     }
 
     private fun setAppLock() {
+        // GroveMedia: app lock disabled, so idle time never opens the old Grove Book unlock screen
+        if (true) return
         if (!securityPreferences.useAuthenticator.get()) return
         if (activity.isAuthenticationSupported()) {
             if (!SecureActivityDelegate.requireUnlock) return
