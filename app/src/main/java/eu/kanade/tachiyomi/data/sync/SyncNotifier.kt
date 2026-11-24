@@ -29,7 +29,7 @@ class SyncNotifier(
         Notifications.CHANNEL_BACKUP_RESTORE_PROGRESS,
     ) {
         setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
-        setSmallIcon(R.drawable.ic_mihon)
+        setSmallIcon(com.grove.music.R.drawable.gm_comic)
         setAutoCancel(false)
         setOngoing(true)
         setOnlyAlertOnce(true)
@@ -39,7 +39,7 @@ class SyncNotifier(
         Notifications.CHANNEL_BACKUP_RESTORE_COMPLETE,
     ) {
         setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
-        setSmallIcon(R.drawable.ic_mihon)
+        setSmallIcon(com.grove.music.R.drawable.gm_comic)
         setAutoCancel(false)
     }
 

@@ -1,5 +1,6 @@
 <resources>
     <string name="gm_widget_desc">GroveMedia now playing</string>
+    <string name="gm_widget_comics_desc">GroveMedia comics: new chapters and what you're reading</string>
     <style name="Theme.GroveMedia" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">#000000</item>
         <item name="android:statusBarColor">#000000</item>

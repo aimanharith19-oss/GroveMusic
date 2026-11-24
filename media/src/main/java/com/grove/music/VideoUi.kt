@@ -428,6 +428,7 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
     val t by produceState<Title?>(null, id, again) { value = VideoMeta.movieFor(ctx, v) }
     var searching by remember { mutableStateOf(false) }
     val (_, rename) = rememberRenamer { n -> android.widget.Toast.makeText(ctx, if (n > 0) "renamed" else "name already matches", android.widget.Toast.LENGTH_SHORT).show(); vm.loadVideos() }
+    val epScope = rememberCoroutineScope()
     val deep = lerp(accent, Color.Black, 0.78f)
     LazyColumn(Modifier.fillMaxSize().background(deep)) {
         item {
@@ -445,7 +446,20 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                     Text("play", color = W, fontSize = 18.sp, modifier = Modifier.background(accent)
                         .tilt { VideoActivity.open(ctx, v, t?.name ?: v.parsed.title) }.padding(horizontal = 26.dp, vertical = 10.dp))
                     FavButton(vm, "v:${v.id}")
-                    if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
+                    if (v.parsed.isEpisode) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
+                        .tilt {
+                            // TV episode: "Show - S01E02 - Episode name" from TMDB (TVmaze if no key)
+                            epScope.launch {
+                                val show = VideoMeta.show(ctx, v.parsed.title)
+                                val e = show?.let { s -> VideoMeta.episodes(ctx, s) }
+                                    ?.firstOrNull { it.season == v.parsed.season && it.number == v.parsed.episode }
+                                if (show == null || e == null || e.name.isBlank())
+                                    android.widget.Toast.makeText(ctx, "couldn't find this episode online", android.widget.Toast.LENGTH_SHORT).show()
+                                else rename(listOf(v to safe("${show.name} - S%02dE%02d - ${e.name}".format(e.season, e.number)) + ".${v.ext}"))
+                            }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 9.dp))
+                    else if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
                     MoreMenu(accent, listOf("hide video" to {

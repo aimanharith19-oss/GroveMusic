@@ -604,6 +604,10 @@
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_wide" />
         </receiver>
+        <receiver android:name=".WidgetComics" android:exported="false" android:label="GroveMedia · comics">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_comics" />
+        </receiver>
         <receiver android:name=".WidgetSquare" android:exported="false" android:label="GroveMedia · square">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/gm_widget_square" />

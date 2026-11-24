@@ -84,3 +84,28 @@ object VideoRepository {
         "m2v", "m4v", "mkv", "mov", "mp2v", "mp4", "mp4v", "mpe", "mpeg", "mpeg1", "mpeg2", "mpeg4", "mpg", "mpv2", "mts", "mtv", "mxf", "nsv",
         "nuv", "ogg", "ogm", "ogv", "ogx", "ps", "rec", "rm", "rmvb", "tod", "trp", "ts", "tts", "vob", "vro", "webm", "wm", "wmv", "wtv", "xesc", "xvid")
 }
+
+
+/** The visible video list, so the player can find the next episode of a show (across seasons). */
+object VideoQueue {
+    @Volatile var all: List<Video> = emptyList()
+
+    /** every episode of [v]'s show, in season then episode order */
+    fun episodes(v: Video): List<Video> {
+        if (!v.parsed.isEpisode) return emptyList()
+        val show = v.parsed.title.lowercase()
+        return all.filter { it.parsed.isEpisode && it.parsed.title.lowercase() == show }
+            .distinctBy { it.parsed.season!! * 10_000 + it.parsed.episode!! }
+            .sortedWith(compareBy({ it.parsed.season }, { it.parsed.episode }))
+    }
+
+    /** the episode after [id], moving on to the next season when a season ends */
+    fun next(id: Long): Video? {
+        val v = all.firstOrNull { it.id == id } ?: return null
+        val eps = episodes(v)
+        val i = eps.indexOfFirst { it.parsed.season == v.parsed.season && it.parsed.episode == v.parsed.episode }
+        return if (i >= 0) eps.getOrNull(i + 1) else null
+    }
+
+    fun label(v: Video) = "${v.parsed.title} · S%02dE%02d".format(v.parsed.season ?: 0, v.parsed.episode ?: 0)
+}

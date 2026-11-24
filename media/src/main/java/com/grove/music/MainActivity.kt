@@ -51,6 +51,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handle(i: Intent?) {
+        // from the comic widget / comic notification: go to the comics tab
+        i?.getStringExtra("tab")?.let { HomeNav.goto.value = it }
         if (i?.action == Intent.ACTION_VIEW) i.data?.let { conn.playUri(it) }
         // "Play <song/artist> on Grove Music" from Google Assistant / system search
         if (i?.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {

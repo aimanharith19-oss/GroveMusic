@@ -1,6 +1,7 @@
 package com.grove.music
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.expandVertically
@@ -48,6 +49,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -560,6 +562,10 @@ fun HomeScreen(
     val pages = listOf("home", "music", "videos", "comics", "book", "stats")
     val pager = rememberPagerState(initialPage = UiMemory.page.coerceIn(0, pages.size - 1)) { pages.size }
     LaunchedEffect(pager) { snapshotFlow { pager.currentPage }.collect { UiMemory.page = it } }
+    val goto = HomeNav.goto.value
+    LaunchedEffect(goto) {
+        if (goto != null) { pages.indexOf(goto).takeIf { it >= 0 }?.let { pager.animateScrollToPage(it) }; HomeNav.goto.value = null }
+    }
     val deep = BookBridge.deep.values.any { it }
     val cctx = LocalContext.current
     var crash by remember { mutableStateOf<String?>(null) }
@@ -740,6 +746,12 @@ object UiMemory {
     val tabs = HashMap<String, String>()
 }
 
+/** lets the home page jump to another top tab (and open a comic there) */
+object HomeNav {
+    val goto = mutableStateOf<String?>(null)
+    val comic = mutableStateOf<OManga?>(null)
+}
+
 /** a tab choice that survives leaving and reopening the app */
 @Composable
 fun rememberTab(key: String, default: String): MutableState<String> {
@@ -774,6 +786,8 @@ fun ComicsPage(accent: Color) {
     // a comic opened from library / updates / history shows its page on top of that tab
     var opened by remember { mutableStateOf<OManga?>(null) }
     var deep by remember { mutableStateOf(false) }
+    val sent = HomeNav.comic.value
+    LaunchedEffect(sent) { if (sent != null) { sub = "library"; opened = sent; HomeNav.comic.value = null } }
     var newCount by remember { mutableStateOf(0) }
     LaunchedEffect(sub, opened) { newCount = withContext(Dispatchers.IO) { ShelfDb(ctx).onlineAll().sumOf { it.newCount } } }
     Column(Modifier.fillMaxSize()) {
@@ -1636,6 +1650,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
     var askRediscover by remember { mutableStateOf(Prefs(ctx).rediscoverSkip != dayNo()) }
 
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item { HomePicks(vm, conn, accent, open) }
         item {
             SectionLabel("speed dial", accent)
             if (dial.isEmpty()) Text("nothing pinned yet — long-press any song and choose \"pin to speed dial\"", color = Dim, fontSize = 14.sp,
@@ -2914,3 +2929,96 @@ fun <T> SlideText(value: T, dir: Int, content: @Composable (T) -> Unit) {
     }, label = "slideText") { content(it) }
 }
 
+
+
+/**
+ * Top of home: shuffle everything, new comic chapters, and a random episode / book / comic for today.
+ * Picks change once a day so the page doesn't jump around every time you open it.
+ */
+@Composable
+private fun HomePicks(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
+    val ctx = LocalContext.current
+    val songs = vm.songs.value
+    val videos = vm.videos.value
+    var reroll by remember { mutableIntStateOf(0) }
+    val seed = dayNo() * 31 + reroll
+    // a show you haven't finished: the first episode you haven't watched to the end
+    val episode = remember(videos, seed) {
+        val pos = ctx.getSharedPreferences("video_pos", Context.MODE_PRIVATE)
+        val shows = videos.filter { it.parsed.isEpisode }.groupBy { it.parsed.title.lowercase() }
+        val show = shows.keys.shuffled(kotlin.random.Random(seed)).firstOrNull() ?: return@remember null
+        val eps = VideoQueue.episodes(shows[show]!!.first()).ifEmpty { shows[show]!! }
+        val watched = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE).getStringSet("watched_eps", emptySet()) ?: emptySet()
+        eps.firstOrNull { pos.contains(it.id.toString()) } ?: eps.firstOrNull { it.id.toString() !in watched } ?: eps.first()
+    }
+    var shelf by remember { mutableStateOf<List<ShelfItem>>(emptyList()) }
+    var online by remember { mutableStateOf<List<OnlineFav>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { val db = ShelfDb(ctx); shelf = db.all(); online = db.onlineAll() }
+    }
+    val book = remember(shelf, seed) { shelf.filter { it.kind == "book" }.shuffled(kotlin.random.Random(seed)).firstOrNull() }
+    val comic = remember(online, seed) { online.shuffled(kotlin.random.Random(seed + 7)).firstOrNull() }
+    val updates = remember(online) { online.filter { it.newCount > 0 }.sortedByDescending { it.updatedAt } }
+
+    Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("shuffle all", color = White, fontSize = 15.sp, modifier = Modifier.background(accent).tilt {
+                if (songs.isNotEmpty()) { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) }
+            }.padding(horizontal = 16.dp, vertical = 9.dp))
+            Text("new picks", color = White, fontSize = 15.sp, modifier = Modifier.border(1.dp, White).tilt { reroll++ }
+                .padding(horizontal = 14.dp, vertical = 8.dp))
+        }
+        if (updates.isNotEmpty()) {
+            SectionLabel("new chapters", accent)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(updates, key = { "${it.source}|${it.url}" }) { f ->
+                    Column(Modifier.width(96.dp).tilt { HomeNav.comic.value = OManga(f.source, f.url, f.title, f.cover); HomeNav.goto.value = "comics" }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
+                            AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                            Text("${f.newCount} new", color = White, fontSize = 11.sp,
+                                modifier = Modifier.align(Alignment.TopEnd).background(accent).padding(horizontal = 4.dp, vertical = 1.dp))
+                        }
+                        Text(f.title, color = White, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        if (episode != null || book != null || comic != null) {
+            SectionLabel("for today", accent)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                episode?.let { v ->
+                    item(key = "ep") {
+                        Column(Modifier.width(180.dp).tilt { VideoActivity.open(ctx, v, VideoQueue.label(v)) }) {
+                            VideoThumb(v, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                            Text(v.parsed.title, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("watch S%02dE%02d".format(v.parsed.season ?: 0, v.parsed.episode ?: 0), color = Dim, fontSize = 12.sp)
+                        }
+                    }
+                }
+                comic?.let { f ->
+                    item(key = "comic") {
+                        Column(Modifier.width(96.dp).tilt { HomeNav.comic.value = OManga(f.source, f.url, f.title, f.cover); HomeNav.goto.value = "comics" }) {
+                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
+                                AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                            }
+                            Text(f.title, color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("read a comic", color = Dim, fontSize = 11.sp)
+                        }
+                    }
+                }
+                book?.let { b ->
+                    item(key = "book") {
+                        Column(Modifier.width(96.dp).tilt { ShelfBooks.open(ctx, b) }) {
+                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(lerp(accent, Color.Black, 0.5f)), contentAlignment = Alignment.Center) {
+                                if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                else Text(b.title.take(1).uppercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light)
+                            }
+                            Text(b.title.substringBeforeLast('.'), color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("read a book", color = Dim, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

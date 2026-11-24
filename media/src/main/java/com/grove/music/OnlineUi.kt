@@ -183,7 +183,7 @@ private fun ComicDetail(start: OManga, accent: Color, back: () -> Unit) {
         withContext(Dispatchers.IO) { runCatching { OnlineBridge.details?.invoke(start) } }
             .onSuccess { r -> if (r != null) { m = r.first.copy(cover = r.first.cover ?: start.cover); chapters = r.second } }
             .onFailure { err = it.message ?: "couldn't load"; chapters = emptyList() }
-        chapters?.let { c -> if (fav) withContext(Dispatchers.IO) { db.setChapters(start.source, start.url, c.size); db.clearNew(start.source, start.url) } }
+        chapters?.let { c -> if (fav) withContext(Dispatchers.IO) { db.setChapters(start.source, start.url, c.size); db.clearNew(start.source, start.url) }; ComicWidget.refresh(ctx) }
     }
     // reading progress refreshes when you come back from the reader
     LaunchedEffect(start.url, tick) { read = withContext(Dispatchers.IO) { db.readChapters(start.source, start.url) } }
@@ -279,7 +279,7 @@ fun OnlineUpdatesScreen(accent: Color, open: (OManga) -> Unit) {
                 scope.launch {
                     checking = "checking…"
                     val n = withContext(Dispatchers.IO) { OnlineUpdates.check(ctx) { i, t -> checking = "checking $i of $t…" } }
-                    checking = null; tick++
+                    checking = null; tick++; ComicWidget.refresh(ctx)
                     android.widget.Toast.makeText(ctx, if (n > 0) "$n new chapters" else "no new chapters", android.widget.Toast.LENGTH_SHORT).show()
                 }
             })

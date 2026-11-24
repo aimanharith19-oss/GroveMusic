@@ -184,7 +184,7 @@ class VideoActivity : ComponentActivity() {
             if (e.type == MediaPlayer.Event.Vout) vouts = e.voutCount
             if (e.type == MediaPlayer.Event.Playing && !retried) android.os.Handler(mainLooper).postDelayed({ blackCheck() }, 2500)
             if (e.type == MediaPlayer.Event.Playing || e.type == MediaPlayer.Event.Paused) refresh()
-            if (e.type == MediaPlayer.Event.EndReached) refresh()
+            if (e.type == MediaPlayer.Event.EndReached) { refresh(); playNextEpisode() }
         }
         val f = android.content.IntentFilter().apply { addAction(VideoService.ACT_TOGGLE); addAction(ACT_AUDIO) }
         registerReceiver(pipReceiver, f, RECEIVER_NOT_EXPORTED)
@@ -209,6 +209,9 @@ class VideoActivity : ComponentActivity() {
                     .setHandleAudioBecomingNoisy(true).build().also { e ->
                         e.addListener(object : androidx.media3.common.Player.Listener {
                             override fun onIsPlayingChanged(isPlaying: Boolean) { refresh() }
+                            override fun onPlaybackStateChanged(state: Int) {
+                                if (state == androidx.media3.common.Player.STATE_ENDED) playNextEpisode()
+                            }
                             // the hardware engine can't play this file (e.g. DTS / TrueHD audio, odd codec) → VLC takes over
                             override fun onPlayerError(error: androidx.media3.common.PlaybackException) { fallbackToVlc() }
                             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
@@ -267,6 +270,22 @@ class VideoActivity : ComponentActivity() {
     }
 
     private val title = mutableStateOf("")
+
+    /** TV shows: when an episode ends, start the next one (the next season after the last episode). */
+    private fun playNextEpisode() {
+        // remember finished episodes (home picks the next one you haven't seen)
+        if (videoId > 0) getSharedPreferences("grove", MODE_PRIVATE).let { p ->
+            p.edit().putStringSet("watched_eps", (p.getStringSet("watched_eps", emptySet()) ?: emptySet()) + videoId.toString()).apply()
+        }
+        val next = VideoQueue.next(videoId) ?: return
+        android.os.Handler(mainLooper).post {
+            if (isFinishing) return@post
+            // this episode is finished: don't resume it from the end next time
+            getSharedPreferences("video_pos", MODE_PRIVATE).edit().remove(videoId.toString()).apply()
+            android.widget.Toast.makeText(this, "next: S%02dE%02d".format(next.parsed.season ?: 0, next.parsed.episode ?: 0), android.widget.Toast.LENGTH_SHORT).show()
+            open(this, next, VideoQueue.label(next))
+        }
+    }
 
     private fun fallbackToVlc() {
         val id = videoId; if (id == 0L || exo == null) return

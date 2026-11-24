@@ -26,4 +26,5 @@ dependencies {
     implementation("net.jthink:jaudiotagger:3.0.1")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation(libs.androidx.work)
 }

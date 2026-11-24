@@ -259,6 +259,7 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
         val h = hiddenVideo.value; val items = hiddenItems.value
         videos.value = allVideos.filter { v -> v.folder !in h && "v:${v.id}" !in items &&
             !(v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items) }
+        VideoQueue.all = videos.value
     }
     fun setVideoFolder(folder: String, show: Boolean) {
         val h = if (show) hiddenVideo.value - folder else hiddenVideo.value + folder

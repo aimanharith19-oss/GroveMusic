@@ -157,6 +157,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         }
         eu.kanade.tachiyomi.ui.grovemedia.MediaEmbed.install()
         eu.kanade.tachiyomi.ui.grovemedia.OnlineImpl.install(applicationContext)
+        runCatching { com.grove.music.ComicUpdateWorker.schedule(applicationContext) }
         com.grove.music.BookBridge.sql = { sql, cols ->
             applicationContext.appGraph.sqlDriver.executeQuery(null, sql, { c: app.cash.sqldelight.db.SqlCursor ->
                 val out = ArrayList<Array<String?>>()
