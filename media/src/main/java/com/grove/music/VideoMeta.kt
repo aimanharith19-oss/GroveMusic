@@ -14,6 +14,7 @@ data class CastMember(val personId: String, val name: String, val role: String, 
 data class Title(
     val id: String, val tv: Boolean, val name: String, val year: Int?, val overview: String, val poster: String?,
     val backdrop: String?, val rating: Double, val genres: List<String>, val cast: List<CastMember>,
+    val adult: Boolean = false,
 )
 data class Episode(val season: Int, val number: Int, val name: String, val overview: String, val still: String?, val air: String)
 data class Credit(val title: String, val year: Int?, val tv: Boolean, val poster: String?, val role: String)
@@ -143,7 +144,7 @@ object VideoMeta {
             o.optJSONObject("credits")?.optJSONArray("cast").objs().take(20).map { c ->
                 CastMember("tmdb:${c.optLong("id")}", c.optString("name"), c.optString("character"),
                     c.optString("profile_path").takeIf { it.isNotBlank() && it != "null" }?.let { IMG + "w185" + it })
-            })
+            }, adult = o.optBoolean("adult", false))
     }
 
     /** every episode of a show, in the official order */

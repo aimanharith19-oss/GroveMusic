@@ -249,15 +249,21 @@ class MusicViewModel(app: Application) : AndroidViewModel(app) {
     val lastHidden = mutableStateOf<String?>(null)
     /** hidden videos (single ones and whole shows) */
     fun hiddenList(): List<Video> { val items = hiddenItems.value
-        return allVideos.filter { v -> "v:${v.id}" in items || (v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items) } }
+        return allVideos.filter { v -> !isAdultVideo(v) && ("v:${v.id}" in items || (v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items)) } }
     fun hideVideo(k: String, hide: Boolean = true) {
         if (hide) lastHidden.value = k
         val h = if (hide) hiddenItems.value + k else hiddenItems.value - k
         hiddenItems.value = h; prefs.hiddenVideos = h; applyVideos()
     }
+    /** adult videos: hidden everywhere (not even in "hidden"), only counted */
+    val adultCount = mutableStateOf(0)
+    fun isAdultVideo(v: Video) = Adult.isAdultName(v.name) || Adult.isAdultName(v.folder.substringAfterLast('/')) || "v:${v.id}" in prefs.adultVideos
+    fun markAdult(v: Video) { prefs.adultVideos = prefs.adultVideos + "v:${v.id}"; applyVideos() }
     private fun applyVideos() {
         val h = hiddenVideo.value; val items = hiddenItems.value
-        videos.value = allVideos.filter { v -> v.folder !in h && "v:${v.id}" !in items &&
+        val adult = allVideos.filter { isAdultVideo(it) }.mapTo(HashSet()) { it.id }
+        adultCount.value = adult.size
+        videos.value = allVideos.filter { v -> v.id !in adult && v.folder !in h && "v:${v.id}" !in items &&
             !(v.parsed.isEpisode && "show:${v.parsed.title.lowercase()}" in items) }
         VideoQueue.all = videos.value
     }
@@ -316,6 +322,10 @@ class Prefs(ctx: Context) {
     var hiddenVideos: Set<String>
         get() = sp.getStringSet("hidden_videos", emptySet())!!.toSet()
         set(v) = sp.edit().putStringSet("hidden_videos", v).apply()
+    /** videos found to be adult (TMDB flag): always hidden, no way to show them */
+    var adultVideos: Set<String>
+        get() = sp.getStringSet("adult_videos", emptySet())!!.toSet()
+        set(v) = sp.edit().putStringSet("adult_videos", v).apply()
     var videoFavs: List<String>
         get() = sp.getString("video_favs", "")!!.split('\n').filter { it.isNotBlank() }
         set(v) = sp.edit().putString("video_favs", v.joinToString("\n")).apply()

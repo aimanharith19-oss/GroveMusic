@@ -118,6 +118,7 @@ private fun Catalogue(src: OSource, accent: Color, back: () -> Unit, open: (OMan
     var more by remember(mode, searched) { mutableStateOf(true) }
     var busy by remember(mode, searched) { mutableStateOf(false) }
     var err by remember(mode, searched) { mutableStateOf<String?>(null) }
+    var adultN by remember(mode, searched) { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     fun load() {
         if (busy || !more) return
@@ -134,7 +135,9 @@ private fun Catalogue(src: OSource, accent: Color, back: () -> Unit, open: (OMan
             }
             r.onSuccess { res ->
                 if (res != null) {
-                    items += res.first.filterNot { Adult.isAdult(it.genre) || items.any { o -> o.url == it.url } }
+                    val (adult, ok) = res.first.partition { Adult.isAdult(it.genre) || Adult.isAdultName(it.title) }
+                    adultN += adult.size
+                    items += ok.filterNot { items.any { o -> o.url == it.url } }
                     more = res.second; page++
                 } else more = false
             }.onFailure { err = it.message ?: "couldn't load"; more = false }
@@ -156,6 +159,7 @@ private fun Catalogue(src: OSource, accent: Color, back: () -> Unit, open: (OMan
             keyboardActions = KeyboardActions(onSearch = { if (query.isNotBlank()) { searched = query.trim(); mode = "search" } }),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp).border(1.dp, D).padding(10.dp),
             decorationBox = { inner -> if (query.isEmpty()) Text("search ${src.name}", color = D, fontSize = 16.sp); inner() })
+        if (adultN > 0) Text("$adultN · 18+ hidden", color = D, fontSize = 12.sp, modifier = Modifier.padding(start = 20.dp))
         if (items.isEmpty() && !busy) { Note(err ?: "nothing here"); return@Column }
         LazyVerticalGrid(GridCells.Fixed(3), contentPadding = PaddingValues(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -188,7 +192,11 @@ private fun ComicDetail(start: OManga, accent: Color, back: () -> Unit) {
     // reading progress refreshes when you come back from the reader
     LaunchedEffect(start.url, tick) { read = withContext(Dispatchers.IO) { db.readChapters(start.source, start.url) } }
     ResumeTick { tick++ }
-    if (Adult.isAdult(m.genre)) { Note("18+ hidden"); return }
+    if (Adult.isAdult(m.genre) || Adult.isAdultName(m.title)) {
+        // adult: never shown, and taken out of the library if it was there
+        LaunchedEffect(m.url) { withContext(Dispatchers.IO) { db.removeFav(m.source, m.url) } }
+        Note("18+ hidden"); return
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             Row(Modifier.padding(20.dp)) {

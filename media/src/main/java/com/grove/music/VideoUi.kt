@@ -188,6 +188,9 @@ private fun HiddenVideos(vm: MusicViewModel, accent: Color) {
                 }
             }, confirmButton = {})
     }
+    val adultN = vm.adultCount.value
+    if (adultN > 0) Text("$adultN ${if (adultN == 1) "video" else "videos"} · 18+ hidden", color = D, fontSize = 12.sp,
+        modifier = Modifier.padding(start = 20.dp, top = 4.dp))
     if (list.isEmpty()) { Text("nothing hidden — videos you hide move here", color = D, fontSize = 15.sp, modifier = Modifier.padding(20.dp)); return }
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         item { Text("only you see these · tap for play or unhide", color = D, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp)) }
@@ -426,6 +429,8 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
     }
     var again by remember { mutableIntStateOf(0) }
     val t by produceState<Title?>(null, id, again) { value = VideoMeta.movieFor(ctx, v) }
+    // TMDB marks it adult: hide it everywhere (the page then closes itself)
+    LaunchedEffect(t) { if (t?.adult == true) vm.markAdult(v) }
     var searching by remember { mutableStateOf(false) }
     val (_, rename) = rememberRenamer { n -> android.widget.Toast.makeText(ctx, if (n > 0) "renamed" else "name already matches", android.widget.Toast.LENGTH_SHORT).show(); vm.loadVideos() }
     val epScope = rememberCoroutineScope()

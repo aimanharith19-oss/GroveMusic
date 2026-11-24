@@ -40,22 +40,27 @@ fun ShelfLibraryScreen(kind: String, accent: Color, modifier: Modifier = Modifie
     val db = remember { ShelfDb(ctx) }
     var items by remember { mutableStateOf(listOf<ShelfItem>()) }
     var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(reload) { items = withContext(Dispatchers.IO) { db.all(kind) } }
+    var adultN by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reload) {
+        val all = withContext(Dispatchers.IO) { db.all(kind) }
+        val (adult, ok) = all.partition { Adult.isAdultName(it.title) }
+        adultN = adult.size; items = ok
+    }
+    val adultToast = { android.widget.Toast.makeText(ctx, "18+ hidden", android.widget.Toast.LENGTH_SHORT).show() }
 
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             val name = androidx.documentfile.provider.DocumentFile.fromTreeUri(ctx, uri)?.name ?: "untitled"
-            db.add(kind, name, uri.toString())
-            reload++
+            if (Adult.isAdultName(name)) adultToast() else { db.add(kind, name, uri.toString()); reload++ }
         }
     }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             val name = androidx.documentfile.provider.DocumentFile.fromSingleUri(ctx, uri)?.name ?: "untitled"
-            db.add(kind, name, uri.toString())
-            reload++
+            if (Adult.isAdultName(name) || (name.endsWith(".epub", true) && Adult.isAdultEpub(ctx, uri))) adultToast()
+            else { db.add(kind, name, uri.toString()); reload++ }
         }
     }
 
@@ -67,6 +72,8 @@ fun ShelfLibraryScreen(kind: String, accent: Color, modifier: Modifier = Modifie
                 modifier = Modifier.clickable { if (kind == "comic") pickFolder.launch(null) else pickFile.launch(arrayOf("*/*")) },
             )
         }
+        if (adultN > 0) Text("$adultN · 18+ hidden", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp,
+            modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
         if (items.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text(if (kind == "comic") "no comics yet — add a folder of images or a .cbz" else "no books yet — add a file",

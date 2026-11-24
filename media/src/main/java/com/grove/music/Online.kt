@@ -42,6 +42,29 @@ object OnlineBridge {
 object Adult {
     private val words = listOf("adult", "hentai", "smut", "erotica", "erotic", "pornographic", "porn", "mature 18+", "18+", "ecchi", "yaoi", "yuri", "nsfw")
 
+    private val nameWords = Regex("""(?i)(^|[\s._\-\[(])(xxx|porn|porno|hentai|jav|nsfw|onlyfans|brazzers|bangbros|pornhub|xvideos|erotic|erotica|18\+)([\s._\-\])]|$)""")
+
+    /** a file or folder name that says it's adult */
+    fun isAdultName(name: String?): Boolean = name != null && nameWords.containsMatchIn(name)
+
+    /** EPUB: the book's own subject tags (dc:subject) */
+    fun isAdultEpub(ctx: Context, uri: android.net.Uri): Boolean = runCatching {
+        ctx.contentResolver.openInputStream(uri)?.use { ins ->
+            java.util.zip.ZipInputStream(ins).use { z ->
+                while (true) {
+                    val e = z.nextEntry ?: break
+                    if (e.name.endsWith(".opf", true)) {
+                        val opf = z.readBytes().toString(Charsets.UTF_8)
+                        val subjects = Regex("""<dc:subject[^>]*>(.*?)</dc:subject>""", RegexOption.IGNORE_CASE)
+                            .findAll(opf).map { it.groupValues[1] }.joinToString(",")
+                        return@use isAdult(subjects)
+                    }
+                }
+                false
+            }
+        } ?: false
+    }.getOrDefault(false)
+
     fun isAdult(genre: String?, title: String? = null): Boolean {
         val g = genre?.lowercase() ?: return false
         return g.split(',', ';', '|').map { it.trim() }.any { tag -> words.any { tag == it || tag.startsWith("$it ") } }
