@@ -64,15 +64,8 @@ import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.MetadataSource
-import eu.kanade.tachiyomi.source.online.all.EHentai
-import eu.kanade.tachiyomi.source.online.all.Hitomi
 import eu.kanade.tachiyomi.source.online.all.Lanraragi
 import eu.kanade.tachiyomi.source.online.all.MangaDex
-import eu.kanade.tachiyomi.source.online.all.NHentai
-import eu.kanade.tachiyomi.source.online.all.Pururin
-import eu.kanade.tachiyomi.source.online.english.EightMuses
-import eu.kanade.tachiyomi.source.online.english.HentaiNexus
-import eu.kanade.tachiyomi.source.online.english.NineHentai
 import eu.kanade.tachiyomi.ui.manga.ChapterList
 import eu.kanade.tachiyomi.ui.manga.MangaViewModel
 import eu.kanade.tachiyomi.ui.manga.MergedMangaData
@@ -81,16 +74,8 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import exh.metadata.MetadataUtil
 import exh.source.MERGED_SOURCE_ID
 import exh.source.getMainSource
-import exh.source.isEhBasedManga
-import exh.ui.metadata.adapters.EHentaiDescription
-import exh.ui.metadata.adapters.EightMusesDescription
-import exh.ui.metadata.adapters.HentaiNexusDescription
-import exh.ui.metadata.adapters.HitomiDescription
 import exh.ui.metadata.adapters.LanraragiDescription
 import exh.ui.metadata.adapters.MangaDexDescription
-import exh.ui.metadata.adapters.NHentaiDescription
-import exh.ui.metadata.adapters.NineHentaiDescription
-import exh.ui.metadata.adapters.PururinDescription
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.roundedfilled.PlayArrow
 import tachiyomi.domain.chapter.model.Chapter
@@ -975,14 +960,7 @@ private fun LazyListScope.sharedChapterItems(
                     },
                     date = item.chapter.dateUpload
                         // SY -->
-                        ?.let {
-                            if (manga.isEhBasedManga()) {
-                                MetadataUtil.EX_DATE_FORMAT
-                                    .format(ZonedDateTime.ofInstant(it.toJavaInstant(), ZoneId.systemDefault()))
-                            } else {
-                                relativeDateText(it)
-                            }
-                        },
+                        ?.let { relativeDateText(it) },
                     // SY <--
                     readProgress = item.chapter.lastPageRead
                         .takeIf {
@@ -1060,32 +1038,11 @@ fun metadataDescription(source: Source): MetadataDescriptionComposable? {
     val metadataSource = remember(source.id) { source.getMainSource<MetadataSource<*, *>>() }
     return remember(metadataSource) {
         when (metadataSource) {
-            is EHentai -> { state, openMetadataViewer, search ->
-                EHentaiDescription(state, openMetadataViewer, search)
-            }
             is MangaDex -> { state, openMetadataViewer, _ ->
                 MangaDexDescription(state, openMetadataViewer)
             }
-            is NHentai -> { state, openMetadataViewer, _ ->
-                NHentaiDescription(state, openMetadataViewer)
-            }
-            is Hitomi -> { state, openMetadataViewer, _ ->
-                HitomiDescription(state, openMetadataViewer)
-            }
-            is EightMuses -> { state, openMetadataViewer, _ ->
-                EightMusesDescription(state, openMetadataViewer)
-            }
-            is Pururin -> { state, openMetadataViewer, _ ->
-                PururinDescription(state, openMetadataViewer)
-            }
             is Lanraragi -> { state, openMetadataViewer, _ ->
                 LanraragiDescription(state, openMetadataViewer)
-            }
-            is HentaiNexus -> { state, openMetadataViewer, _ ->
-                HentaiNexusDescription(state, openMetadataViewer)
-            }
-            is NineHentai -> { state, openMetadataViewer, _ ->
-                NineHentaiDescription(state, openMetadataViewer)
             }
             else -> null
         }

@@ -12,7 +12,6 @@ import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.source.online.MetadataSource
 import eu.kanade.tachiyomi.util.storage.CbzCrypto
 import tachiyomi.data.Database
-import tachiyomi.data.manga.FavoritesEntryRepositoryImpl
 import tachiyomi.data.manga.MangaMapper
 import tachiyomi.data.manga.MangaMergeRepositoryImpl
 import tachiyomi.data.manga.MangaMetadataRepositoryImpl
@@ -21,7 +20,6 @@ import tachiyomi.data.source.SavedSearchRepositoryImpl
 import tachiyomi.domain.manga.interactor.GetFlatMetadataById
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.interactor.InsertFlatMetadata
-import tachiyomi.domain.manga.repository.FavoritesEntryRepository
 import tachiyomi.domain.manga.repository.MangaMergeRepository
 import tachiyomi.domain.manga.repository.MangaMetadataRepository
 import tachiyomi.domain.source.repository.FeedSavedSearchRepository
@@ -59,11 +57,6 @@ object SYBindings {
     @SingleIn(AppScope::class)
     fun providesMangaMergeRepository(database: Database): MangaMergeRepository =
         MangaMergeRepositoryImpl(database)
-
-    @Provides
-    @SingleIn(AppScope::class)
-    fun providesFavoritesEntryRepository(database: Database): FavoritesEntryRepository =
-        FavoritesEntryRepositoryImpl(database)
 
     @Provides
     @SingleIn(AppScope::class)

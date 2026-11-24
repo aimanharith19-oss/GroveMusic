@@ -2,13 +2,8 @@ package exh.util
 
 import androidx.core.graphics.toColorInt
 import exh.metadata.metadata.base.RaisedTag
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
-import exh.source.hitomiSourceIds
 import exh.source.lanraragiSourceIds
 import exh.source.mangaDexSourceIds
-import exh.source.nHentaiSourceIds
-import exh.source.pururinSourceIds
 import java.util.Locale
 
 /**
@@ -22,12 +17,7 @@ object SourceTagsUtil {
         fullTag: String? = null,
     ): String? {
         return if (
-            sourceId == EXH_SOURCE_ID ||
-            sourceId == EH_SOURCE_ID ||
-            sourceId in nHentaiSourceIds ||
-            sourceId in hitomiSourceIds ||
             sourceId in mangaDexSourceIds ||
-            sourceId in pururinSourceIds ||
             sourceId in lanraragiSourceIds
         ) {
             val parsed = when {
@@ -37,10 +27,7 @@ object SourceTagsUtil {
             }
             if (parsed?.namespace != null) {
                 when (sourceId) {
-                    in nHentaiSourceIds -> wrapTagNHentai(parsed.namespace!!, parsed.name.substringBefore('|').trim())
-                    in hitomiSourceIds -> wrapTagHitomi(parsed.namespace!!, parsed.name.substringBefore('|').trim())
                     in mangaDexSourceIds -> parsed.name
-                    in pururinSourceIds -> parsed.name.substringBefore('|').trim()
                     else -> wrapTag(parsed.namespace!!, parsed.name.substringBefore('|').trim())
                 }
             } else {
@@ -55,22 +42,6 @@ object SourceTagsUtil {
         "$namespace:\"$tag$\""
     } else {
         "$namespace:$tag$"
-    }
-
-    private fun wrapTagHitomi(namespace: String, tag: String) = if (tag.contains(spaceRegex)) {
-        "$namespace:$tag".replace(spaceRegex, "_")
-    } else {
-        "$namespace:$tag"
-    }
-
-    private fun wrapTagNHentai(namespace: String, tag: String) = if (tag.contains(spaceRegex)) {
-        if (namespace == "tag") {
-            """"$tag""""
-        } else {
-            """$namespace:"$tag""""
-        }
-    } else {
-        "$namespace:$tag"
     }
 
     fun parseTag(tag: String) = RaisedTag(

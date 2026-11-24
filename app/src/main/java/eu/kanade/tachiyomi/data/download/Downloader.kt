@@ -20,7 +20,6 @@ import eu.kanade.tachiyomi.util.storage.CbzCrypto
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.DiskUtil.NOMEDIA_FILE
 import eu.kanade.tachiyomi.util.storage.saveTo
-import exh.source.isEhBasedSource
 import exh.util.DataSaver
 import exh.util.DataSaver.Companion.getImage
 import kotlinx.coroutines.CancellationException
@@ -627,11 +626,6 @@ class Downloader(
             .retryWhen { _, attempt ->
                 if (attempt < 3) {
                     delay((2L shl attempt.toInt()).seconds)
-                    // SY -->
-                    if (source.isEhBasedSource()) {
-                        page.imageUrl = source.getImageUrl(page)
-                    }
-                    // SY <--
                     true
                 } else {
                     false

@@ -484,21 +484,6 @@ UPDATE manga
 SET state_is_syncing = 0
 WHERE state_is_syncing = 1;
 
-getEhMangaWithMetadata:
-SELECT
-    M.id, M.source_id, M.remote_url, M.remote_title, M.remote_author, M.remote_artist,
-    M.remote_description, M.remote_genre, M.remote_status, M.remote_cover,
-    M.remote_update_strategy, M.remote_memo, M.user_favorite_at, M.user_notes,
-    M.user_reader_flags, M.user_chapter_flags, M.state_chapter_last_update,
-    M.state_chapter_next_update, M.state_chapter_fetch_interval,
-    M.state_cover_last_modified, M.state_initialized,
-    M.state_last_modified_at, M.state_version, M.state_is_syncing,
-    M.user_title, M.user_author, M.user_artist, M.user_thumbnail_url, M.user_description, M.user_genre, M.user_status
-FROM manga M
-JOIN search_metadata SM ON M.id = SM.manga_id
-WHERE M.user_favorite_at IS NOT NULL
-AND M.source_id IN (:sourceId1, :sourceId2);
-
 getIdsOfFavoriteMangaWithMetadata:
 SELECT M.id
 FROM manga M

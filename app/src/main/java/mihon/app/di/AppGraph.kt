@@ -46,12 +46,8 @@ import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.CrashLogUtil
 import eu.kanade.tachiyomi.util.storage.CbzCrypto
 import exh.debug.DebugFunctions
-import exh.eh.EHentaiUpdateWorker
 import exh.pref.DelegateSourcePreferences
 import exh.source.ExhPreferences
-import exh.uconfig.EHConfigurator
-import exh.ui.intercept.InterceptActivity
-import exh.ui.login.EhLoginActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
@@ -68,9 +64,7 @@ import tachiyomi.domain.category.interactor.ResetCategoryFlags
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
-import tachiyomi.domain.manga.interactor.DeleteFavoriteEntries
 import tachiyomi.domain.manga.interactor.GetAllManga
-import tachiyomi.domain.manga.interactor.GetExhFavoriteMangaWithMetadata
 import tachiyomi.domain.manga.interactor.GetFavorites
 import tachiyomi.domain.manga.interactor.GetFlatMetadataById
 import tachiyomi.domain.manga.interactor.GetManga
@@ -106,9 +100,6 @@ interface AppGraph : ViewModelGraph {
 
     // SY -->
     fun inject(syncDataJob: SyncDataJob)
-    fun inject(eHentaiUpdateWorker: EHentaiUpdateWorker)
-    fun inject(ehLoginActivity: EhLoginActivity)
-    fun inject(interceptActivity: InterceptActivity)
     // SY <--
 
     val context: Context
@@ -137,14 +128,11 @@ interface AppGraph : ViewModelGraph {
     val syncPreferences: SyncPreferences
     val exhPreferences: ExhPreferences
     val delegateSourcePreferences: DelegateSourcePreferences
-    val ehConfigurator: EHConfigurator
     val getAllManga: GetAllManga
     val getChaptersByMangaId: GetChaptersByMangaId
     val pagePreviewCache: PagePreviewCache
     val googleDriveService: GoogleDriveService
     val getFlatMetadataById: GetFlatMetadataById
-    val deleteFavoriteEntries: DeleteFavoriteEntries
-    val getExhFavoriteMangaWithMetadata: GetExhFavoriteMangaWithMetadata
     val preferenceStore: PreferenceStore
     val getManga: GetManga
     val cbzCrypto: CbzCrypto

@@ -64,8 +64,6 @@ import eu.kanade.tachiyomi.util.system.workManager
 import exh.debug.SettingsDebugScreen
 import exh.log.EHLogLevel
 import exh.source.BlacklistedSources
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
 import exh.util.toAnnotatedString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

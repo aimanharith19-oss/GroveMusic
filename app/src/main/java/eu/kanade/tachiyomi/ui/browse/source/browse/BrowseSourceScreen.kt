@@ -248,7 +248,6 @@ data class BrowseSourceScreen(
                 mangaList = viewModel.mangaPagerFlowFlow.collectAsLazyPagingItems(),
                 columns = viewModel.getColumnsPreference(LocalConfiguration.current.orientation),
                 // SY -->
-                ehentaiBrowseDisplayMode = viewModel.ehentaiBrowseDisplayMode,
                 // SY <--
                 displayMode = viewModel.displayMode,
                 snackbarHostState = snackbarHostState,

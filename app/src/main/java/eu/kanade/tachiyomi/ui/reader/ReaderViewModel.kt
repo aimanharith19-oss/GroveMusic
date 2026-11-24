@@ -73,7 +73,6 @@ import eu.kanade.tachiyomi.util.system.activeNetworkState
 import exh.metadata.metadata.RaisedSearchMetadata
 import exh.source.MERGED_SOURCE_ID
 import exh.source.getMainSource
-import exh.source.isEhBasedManga
 import exh.util.defaultReaderType
 import exh.util.mangaType
 import kotlinx.coroutines.CancellationException
@@ -628,10 +627,6 @@ class ReaderViewModel(
         nextChapterPreloadJob?.cancel()
         nextChapterPreloadJob = viewModelScope.launch(Dispatchers.IO) {
             if (!canLoadAhead()) return@launch
-            // SY -->
-            // E-Hentai limits how many images an account can view, so its chapters only load near the page being read
-            if (manga?.isEhBasedManga() == true) return@launch
-            // SY <--
             val current = chapters.currChapter
             // Only online pages load in the background; other loaders load a page once it's shown
             if (current.pageLoader is HttpPageLoader) {
@@ -911,18 +906,6 @@ class ReaderViewModel(
     }
 
     private suspend fun updateChapterProgressOnComplete(readerChapter: ReaderChapter) {
-        // SY -->
-        if (manga?.isEhBasedManga() == true) {
-            appScope.launch {
-                val chapterUpdates = getUnfilteredChapterList()
-                    .filter { it.sourceOrder > readerChapter.chapter.sourceOrder }
-                    .map { chapter ->
-                        ChapterUpdate(chapter.id) { read = true }
-                    }
-                updateChapter.awaitAll(chapterUpdates)
-            }
-        }
-        // SY <--
 
         updateTrackChapterRead(readerChapter)
         deleteChapterIfNeeded(readerChapter)

@@ -96,7 +96,6 @@ class BrowseRecommendsScreen(
                 mangaList = viewModel.mangaPagerFlowFlow.collectAsLazyPagingItems(),
                 columns = viewModel.getColumnsPreference(LocalConfiguration.current.orientation),
                 // SY -->
-                ehentaiBrowseDisplayMode = false,
                 // SY <--
                 displayMode = viewModel.displayMode,
                 snackbarHostState = snackbarHostState,

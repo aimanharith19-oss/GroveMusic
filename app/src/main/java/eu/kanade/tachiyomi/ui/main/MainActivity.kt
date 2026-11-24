@@ -64,7 +64,6 @@ import eu.kanade.presentation.components.DownloadedOnlyBannerBackgroundColor
 import eu.kanade.presentation.components.IncognitoModeBannerBackgroundColor
 import eu.kanade.presentation.components.IndexingBannerBackgroundColor
 import eu.kanade.presentation.more.AppMigratingScreen
-import eu.kanade.presentation.more.settings.screen.ConfigureExhDialog
 import eu.kanade.presentation.more.settings.screen.about.WhatsNewDialog
 import eu.kanade.presentation.more.settings.screen.browse.ExtensionStoresScreen
 import eu.kanade.presentation.more.settings.screen.data.RestoreBackupScreen
@@ -91,12 +90,8 @@ import eu.kanade.tachiyomi.util.system.isPreviewBuildType
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import exh.debug.DebugToggles
 import exh.debug.asPref
-import exh.eh.EHentaiUpdateWorker
 import exh.log.DebugModeOverlay
 import exh.source.BlacklistedSources
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
-import exh.source.ExhPreferences
 import exh.syDebugVersion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -133,7 +128,6 @@ class MainActivity : BaseActivity() {
     private val graph: AppGraph by lazy { metroGraph() }
 
     // SY -->
-    @Inject private lateinit var exhPreferences: ExhPreferences
     // SY <--
 
     @Inject private lateinit var libraryPreferences: LibraryPreferences
@@ -189,7 +183,6 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    private var runExhConfigureDialog by mutableStateOf(false)
     // SY <--
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -287,19 +280,6 @@ class MainActivity : BaseActivity() {
                         // Reset Incognito Mode on relaunch
                         preferences.incognitoMode.set(false)
 
-                        // SY -->
-                        initWhenIdle {
-                            // Upload settings
-                            if (exhPreferences.enableExhentai.get() &&
-                                exhPreferences.exhShowSettingsUploadWarning.get()
-                            ) {
-                                runExhConfigureDialog = true
-                            }
-                            // Scheduler uploader job if required
-
-                            EHentaiUpdateWorker.scheduleBackground(this@MainActivity)
-                        }
-                        // SY <--
                     }
                 }
                 LaunchedEffect(navigator.lastItem) {
@@ -395,9 +375,6 @@ class MainActivity : BaseActivity() {
                 // SY <--
             }
 
-            // SY -->
-            ConfigureExhDialog(run = runExhConfigureDialog, onRunning = { runExhConfigureDialog = false })
-            // SY <--
         }
 
         val startTime = System.currentTimeMillis()
@@ -413,11 +390,6 @@ class MainActivity : BaseActivity() {
             }
         }
 
-        // SY -->
-        // Grovebook: the built-in E-Hentai/ExHentai sources are always hidden
-        BlacklistedSources.HIDDEN_SOURCES += EH_SOURCE_ID
-        BlacklistedSources.HIDDEN_SOURCES += EXH_SOURCE_ID
-        // SY <--
     }
 
     override fun onProvideAssistContent(outContent: AssistContent) {

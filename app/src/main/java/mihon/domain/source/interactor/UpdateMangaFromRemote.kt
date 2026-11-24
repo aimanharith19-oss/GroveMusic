@@ -9,7 +9,6 @@ import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.all.EHentai
 import eu.kanade.tachiyomi.source.online.all.MergedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -74,24 +73,12 @@ class UpdateMangaFromRemote(
         try {
             val chapters = chapterRepository.getChapterByMangaId(manga.id)
                 .sortedBy { it.sourceOrder }
-            // SY -->
-            val update = if (source is EHentai) {
-                source.getMangaUpdate(
-                    manga = manga.toSManga(),
-                    chapters = chapters.map(Chapter::toSChapter),
-                    fetchDetails = fetchDetails,
-                    fetchChapters = fetchChapters,
-                    throttleFunc = throttleFunc,
-                )
-            } else {
-                source.getMangaUpdate(
-                    manga = manga.toSManga(),
-                    chapters = chapters.map(Chapter::toSChapter),
-                    fetchDetails = fetchDetails,
-                    fetchChapters = fetchChapters,
-                )
-            }
-            // SY <--
+            val update = source.getMangaUpdate(
+                manga = manga.toSManga(),
+                chapters = chapters.map(Chapter::toSChapter),
+                fetchDetails = fetchDetails,
+                fetchChapters = fetchChapters,
+            )
             awaitUpdateFromSource(manga, update.manga, manualFetch)
             // SY -->
             val newChapters = if (source is MergedSource) {

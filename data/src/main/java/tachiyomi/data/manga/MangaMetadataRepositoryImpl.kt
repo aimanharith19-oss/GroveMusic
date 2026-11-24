@@ -6,8 +6,6 @@ import exh.metadata.metadata.base.FlatMetadata
 import exh.metadata.sql.models.SearchMetadata
 import exh.metadata.sql.models.SearchTag
 import exh.metadata.sql.models.SearchTitle
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
 import kotlinx.coroutines.flow.Flow
 import tachiyomi.data.Database
 import tachiyomi.data.subscribeToList
@@ -85,12 +83,6 @@ class MangaMetadataRepositoryImpl(
                 database.search_titlesQueries.insert(mangaId = it.mangaId, title = it.title, type = it.type.toLong())
             }
         }
-    }
-
-    override suspend fun getExhFavoriteMangaWithMetadata(): List<Manga> {
-        return database.mangaQueries
-            .getEhMangaWithMetadata(EH_SOURCE_ID, EXH_SOURCE_ID, MangaMapper::mapManga)
-            .awaitAsList()
     }
 
     override suspend fun getIdsOfFavoriteMangaWithMetadata(): List<Long> {

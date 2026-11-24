@@ -24,8 +24,6 @@ import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.coil.InstalledExtensionIcon
 import eu.kanade.tachiyomi.data.coil.InstalledSourceIcon
 import eu.kanade.tachiyomi.extension.model.Extension
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
 import exh.source.MERGED_SOURCE_ID
 import mihon.icons.materialsymbols.MaterialSymbols
 import mihon.icons.materialsymbols.roundedfilled.Dangerous
@@ -124,8 +122,6 @@ fun ExtensionIcon(
 
 // SY -->
 private val builtInSourceIcons = mapOf(
-    EH_SOURCE_ID to R.mipmap.ic_ehentai_source,
-    EXH_SOURCE_ID to R.mipmap.ic_exhentai_source,
     MERGED_SOURCE_ID to R.mipmap.ic_merged_source,
 )
 // SY <--

@@ -23,7 +23,6 @@ import exh.metadata.metadata.RaisedSearchMetadata
 import exh.pref.DelegateSourcePreferences
 import exh.recs.sources.RecommendationPagingSource
 import exh.recs.sources.StaticResultPagingSource
-import exh.source.ExhPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -76,7 +75,6 @@ class BrowseRecommendsViewModel(
     updateManga: UpdateManga,
     addTracks: AddTracks,
     getIncognitoState: GetIncognitoState,
-    exhPreferences: ExhPreferences,
     uiPreferences: UiPreferences,
     getFlatMetadataById: GetFlatMetadataById,
     deleteSavedSearchById: DeleteSavedSearchById,
@@ -102,7 +100,6 @@ class BrowseRecommendsViewModel(
     updateManga = updateManga,
     addTracks = addTracks,
     getIncognitoState = getIncognitoState,
-    exhPreferences = exhPreferences,
     uiPreferences = uiPreferences,
     appScope = appScope,
     getFlatMetadataById = getFlatMetadataById,

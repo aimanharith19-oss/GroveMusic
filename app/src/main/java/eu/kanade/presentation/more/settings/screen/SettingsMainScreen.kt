@@ -44,7 +44,6 @@ import mihon.icons.materialsymbols.rounded.Search
 import mihon.icons.materialsymbols.rounded.Security
 import mihon.icons.materialsymbols.rounded.Storage
 import mihon.icons.materialsymbols.rounded.Sync
-import mihon.icons.sy.brands.EHentai
 import mihon.icons.sy.brands.Mangadex
 import mihon.icons.sy.brands.SYBrands
 import tachiyomi.i18n.MR

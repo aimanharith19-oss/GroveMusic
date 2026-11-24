@@ -31,10 +31,6 @@ class EhRepositoryImpl(
         database.ehQueries.resetReaderViewerForAllManga()
     }
 
-    override suspend fun migrateAllNhentaiToOtherLang(otherId: Long, sources: Set<Long>) {
-        database.ehQueries.migrateAllNhentaiToOtherLang(newSourceId = otherId, sourceIds = sources)
-    }
-
     override suspend fun deleteByTrackerId(trackerId: Long) {
         database.ehQueries.deleteByTrackerId(trackerId = trackerId)
     }

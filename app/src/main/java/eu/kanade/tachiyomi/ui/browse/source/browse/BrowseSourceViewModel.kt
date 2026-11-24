@@ -35,7 +35,6 @@ import eu.kanade.tachiyomi.source.online.MetadataSource
 import eu.kanade.tachiyomi.source.online.all.MangaDex
 import eu.kanade.tachiyomi.util.removeCovers
 import exh.metadata.metadata.RaisedSearchMetadata
-import exh.source.ExhPreferences
 import exh.source.getMainSource
 import exh.source.mangaDexSourceIds
 import kotlinx.coroutines.CoroutineScope
@@ -108,7 +107,6 @@ import eu.kanade.tachiyomi.source.model.Filter as SourceModelFilter
     private val addTracks: AddTracks,
     getIncognitoState: GetIncognitoState,
     // SY -->
-    exhPreferences: ExhPreferences,
     private val uiPreferences: UiPreferences,
     private val getFlatMetadataById: GetFlatMetadataById,
     private val deleteSavedSearchById: DeleteSavedSearchById,
@@ -140,8 +138,6 @@ import eu.kanade.tachiyomi.source.model.Filter as SourceModelFilter
     private val source: Source? get() = state.value.source
 
     // SY -->
-    val ehentaiBrowseDisplayMode by exhPreferences.enhancedEHentaiView.asState(viewModelScope)
-
     val startExpanded by uiPreferences.expandFilters.asState(viewModelScope)
 
     private val filterSerializer = FilterSerializer()

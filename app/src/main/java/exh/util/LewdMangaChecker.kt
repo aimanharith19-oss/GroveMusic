@@ -1,7 +1,5 @@
 package exh.util
 
-import exh.source.isEhBasedManga
-import exh.source.nHentaiSourceIds
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 
@@ -11,17 +9,8 @@ import tachiyomi.domain.source.service.SourceManager
 suspend fun Manga.isLewd(sourceManager: SourceManager): Boolean {
     val sourceName = sourceManager.get(source)?.name
 
-    if (isEhBasedManga() || source in nHentaiSourceIds) {
-        return genre.orEmpty().none { tag -> isNonHentaiTag(tag) }
-    }
-
-    return source in 6905L..6913L ||
-        (sourceName != null && isHentaiSource(sourceName)) ||
+    return (sourceName != null && isHentaiSource(sourceName)) ||
         genre.orEmpty().any { tag -> isHentaiTag(tag) }
-}
-
-private fun isNonHentaiTag(tag: String): Boolean {
-    return tag.contains("non-h", true)
 }
 
 private fun isHentaiTag(tag: String): Boolean {

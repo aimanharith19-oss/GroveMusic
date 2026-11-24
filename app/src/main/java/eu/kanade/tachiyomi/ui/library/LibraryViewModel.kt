@@ -34,17 +34,12 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.source.online.all.MergedSource
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
 import eu.kanade.tachiyomi.util.removeCovers
-import exh.favorites.FavoritesSyncHelper
 import exh.md.utils.FollowStatus
 import exh.md.utils.MdUtil
 import exh.recs.batch.RecommendationSearchHelper
-import exh.source.EH_SOURCE_ID
-import exh.source.ExhPreferences
 import exh.source.MERGED_SOURCE_ID
-import exh.source.isEhBasedManga
 import exh.source.isMetadataSource
 import exh.source.mangaDexSourceIds
-import exh.source.nHentaiSourceIds
 import exh.util.cancellable
 import exh.util.isLewd
 import exh.util.nullIfBlank
@@ -143,7 +138,6 @@ class LibraryViewModel(
     private val trackerManager: TrackerManager,
 
     // SY -->
-    private val exhPreferences: ExhPreferences,
     private val sourcePreferences: SourcePreferences,
     private val getMergedMangaById: GetMergedMangaById,
     private val getMergedManga: GetMergedManga,
@@ -156,7 +150,6 @@ class LibraryViewModel(
     private val smartSearchMerge: SmartSearchMerge,
 
     syncPreferences: SyncPreferences,
-    val favoritesSync: FavoritesSyncHelper,
     val recommendationSearch: RecommendationSearchHelper,
     private val context: Context,
     // SY <--
@@ -294,13 +287,6 @@ class LibraryViewModel(
     // SY -->
     private var recommendationSearchJob: Job? = null
 
-    val isHentaiEnabled = combine(
-        exhPreferences.isHentaiEnabled.changes(),
-        sourcePreferences.disabledSources.changes(),
-        exhPreferences.enableExhentai.changes(),
-    ) { isHentaiEnabled, disabledSources, enableExhentai ->
-        isHentaiEnabled && (EH_SOURCE_ID.toString() !in disabledSources || enableExhentai)
-    }.distinctUntilChanged()
     val syncService = syncPreferences.syncService.changes()
         .map { it != 0 }
         .distinctUntilChanged()
@@ -311,9 +297,9 @@ class LibraryViewModel(
         combine(searchQuery, selection, dialog, ::Triple),
         combine(activeCategoryIndex, displayPreferences, hasActiveFilters, ::Triple),
         // SY -->
-        combine(isHentaiEnabled, syncService, ::Pair),
+        syncService,
         // SY <--
-    ) { library, (searchQuery, selection, dialog), (activeCategoryIndex, display, hasActiveFilters), (isHentaiEnabled, isSyncEnabled) ->
+    ) { library, (searchQuery, selection, dialog), (activeCategoryIndex, display, hasActiveFilters), isSyncEnabled ->
         State(
             isLoading = library == null,
             searchQuery = searchQuery,
@@ -328,7 +314,6 @@ class LibraryViewModel(
             groupedFavorites = library?.groupedFavorites.orEmpty(),
             // SY -->
             groupType = library?.data?.groupType ?: LibraryGroup.BY_DEFAULT,
-            showSyncExh = isHentaiEnabled,
             isSyncEnabled = isSyncEnabled,
             // SY <--
         )
@@ -820,8 +805,7 @@ class LibraryViewModel(
     fun cleanTitles() {
         viewModelScope.launch(Dispatchers.IO) {
             val updates = state.value.selectedManga.fastFilter {
-                it.isEhBasedManga() ||
-                    it.source in nHentaiSourceIds
+                false
             }.mapNotNull { manga ->
                 val editedTitle =
                     manga.title.replace("\\[.*?]".toRegex(), "").trim().replace("\\(.*?\\)".toRegex(), "").trim()
@@ -1206,8 +1190,6 @@ class LibraryViewModel(
         data class DeleteManga(val manga: List<Manga>) : Dialog
 
         // SY -->
-        data object SyncFavoritesWarning : Dialog
-        data object SyncFavoritesConfirm : Dialog
         data class RecommendationSearchSheet(val manga: List<Manga>) : Dialog
         data class MergeFinished(val entries: List<Manga>, val mergedMangaId: Long) : Dialog
         // SY <--
@@ -1314,24 +1296,6 @@ class LibraryViewModel(
         recommendationSearchJob = null
     }
 
-    fun runSync() {
-        favoritesSync.runSync(viewModelScope)
-    }
-
-    fun onAcceptSyncWarning() {
-        exhPreferences.exhShowSyncIntro.set(false)
-    }
-
-    fun openFavoritesSyncDialog() {
-        dialog.update {
-            if (exhPreferences.exhShowSyncIntro.get()) {
-                Dialog.SyncFavoritesWarning
-            } else {
-                Dialog.SyncFavoritesConfirm
-            }
-        }
-    }
-
     fun showMergeFinishedDialog(entries: List<Manga>, mergedMangaId: Long) {
         dialog.update { Dialog.MergeFinished(entries, mergedMangaId) }
     }
@@ -1388,7 +1352,6 @@ class LibraryViewModel(
         private val activeCategoryIndex: Int = 0,
         private val groupedFavorites: Map<Category, List</* LibraryItem */ Long>> = emptyMap(),
         // SY -->
-        val showSyncExh: Boolean = false,
         val isSyncEnabled: Boolean = false,
         val groupType: Int = LibraryGroup.BY_DEFAULT,
         // SY <--
@@ -1411,8 +1374,7 @@ class LibraryViewModel(
         // SY -->
         val showCleanTitles: Boolean by lazy {
             selectedManga.fastAny {
-                it.isEhBasedManga() ||
-                    it.source in nHentaiSourceIds
+                false
             }
         }
 

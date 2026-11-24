@@ -20,12 +20,6 @@ WHERE manga_id IN :mangaIds
 -- The unique index's order, which getChaptersByMangaId returns too, so backups keep their chapter order
 ORDER BY manga_id, remote_url;
 
-migrateAllNhentaiToOtherLang:
-UPDATE manga
-SET source_id = :newSourceId
-WHERE user_favorite_at IS NOT NULL
-AND source_id IN :sourceIds;
-
 resetReaderViewerForAllManga:
 UPDATE manga
 SET user_reader_flags = 0

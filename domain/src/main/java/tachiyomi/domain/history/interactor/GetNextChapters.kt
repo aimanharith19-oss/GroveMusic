@@ -2,7 +2,6 @@ package tachiyomi.domain.history.interactor
 
 import dev.zacsweers.metro.Inject
 import exh.source.MERGED_SOURCE_ID
-import exh.source.isEhBasedManga
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.GetMergedChaptersByMangaId
 import tachiyomi.domain.chapter.model.Chapter
@@ -36,16 +35,6 @@ class GetNextChapters(
 
             return if (onlyUnread) {
                 chapters.filterNot { it.read }
-            } else {
-                chapters
-            }
-        }
-        if (manga.isEhBasedManga()) {
-            val chapters = getChaptersByMangaId.await(mangaId, applyScanlatorFilter = true)
-                .sortedWith(getChapterSort(manga, sortDescending = false))
-
-            return if (onlyUnread) {
-                chapters.takeLast(1).takeUnless { it.firstOrNull()?.read == true }.orEmpty()
             } else {
                 chapters
             }

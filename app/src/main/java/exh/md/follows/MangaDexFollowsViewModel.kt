@@ -18,7 +18,6 @@ import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.online.all.MangaDex
 import eu.kanade.tachiyomi.ui.browse.source.browse.BrowseSourceViewModel
 import exh.metadata.metadata.RaisedSearchMetadata
-import exh.source.ExhPreferences
 import exh.source.getMainSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -59,7 +58,6 @@ class MangaDexFollowsViewModel(
     updateManga: UpdateManga,
     addTracks: AddTracks,
     getIncognitoState: GetIncognitoState,
-    exhPreferences: ExhPreferences,
     uiPreferences: UiPreferences,
     getFlatMetadataById: GetFlatMetadataById,
     deleteSavedSearchById: DeleteSavedSearchById,
@@ -82,7 +80,6 @@ class MangaDexFollowsViewModel(
     updateManga = updateManga,
     addTracks = addTracks,
     getIncognitoState = getIncognitoState,
-    exhPreferences = exhPreferences,
     uiPreferences = uiPreferences,
     appScope = appScope,
     getFlatMetadataById = getFlatMetadataById,

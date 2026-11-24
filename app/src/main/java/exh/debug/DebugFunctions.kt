@@ -7,13 +7,7 @@ import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.library.LibraryUpdateWorker
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.source.AndroidSourceManager
-import eu.kanade.tachiyomi.source.online.all.NHentai
 import eu.kanade.tachiyomi.util.system.workManager
-import exh.eh.EHentaiUpdateWorker
-import exh.metadata.metadata.EHentaiSearchMetadata
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
-import exh.source.nHentaiSourceIds
 import exh.util.ThrottleManager
 import exh.util.jobScheduler
 import kotlinx.coroutines.launch
@@ -27,7 +21,6 @@ import mihon.core.migration.Migrator
 import mihon.domain.source.interactor.UpdateMangaFromRemote
 import tachiyomi.domain.eh.repository.EhRepository
 import tachiyomi.domain.manga.interactor.GetAllManga
-import tachiyomi.domain.manga.interactor.GetExhFavoriteMangaWithMetadata
 import tachiyomi.domain.manga.interactor.GetFavorites
 import tachiyomi.domain.manga.interactor.GetFlatMetadataById
 import tachiyomi.domain.manga.interactor.GetSearchMetadata
@@ -52,7 +45,6 @@ class DebugFunctions(
     private val getFavorites: GetFavorites,
     private val getFlatMetadataById: GetFlatMetadataById,
     private val insertFlatMetadata: InsertFlatMetadata,
-    private val getExhFavoriteMangaWithMetadata: GetExhFavoriteMangaWithMetadata,
     private val getSearchMetadata: GetSearchMetadata,
     private val getAllManga: GetAllManga,
 ) {
@@ -73,67 +65,9 @@ class DebugFunctions(
         return runBlocking { strategy(context.appGraph.migrations.toList()).await() }
     }
 
-    fun resetAgedFlagInEXHManga() {
-        runBlocking {
-            getExhFavoriteMangaWithMetadata.await().forEach { manga ->
-                val meta = getFlatMetadataById.await(manga.id)?.raise<EHentaiSearchMetadata>() ?: return@forEach
-                // remove age flag
-                meta.aged = false
-                insertFlatMetadata.await(meta)
-            }
-        }
-    }
-    private val throttleManager = ThrottleManager()
-
     fun getDelegatedSourceList(): String = AndroidSourceManager.currentDelegatedSources.map {
         it.value.sourceName + " : " + it.value.sourceIds + " : " + it.value.factory
     }.joinToString(separator = "\n")
-
-    fun resetEHGalleriesForUpdater() {
-        throttleManager.resetThrottle()
-        runBlocking {
-            val allManga = getExhFavoriteMangaWithMetadata.await()
-
-            val eh = sourceManager.getOrStub(EH_SOURCE_ID)
-            val ex = sourceManager.getOrStub(EXH_SOURCE_ID)
-
-            allManga.forEach { manga ->
-                throttleManager.throttle()
-
-                updateMangaFromRemote(
-                    when (manga.source) {
-                        EH_SOURCE_ID -> eh
-                        EXH_SOURCE_ID -> ex
-                        else -> return@forEach
-                    },
-                    manga,
-                    fetchDetails = true,
-                    fetchChapters = false,
-                )
-            }
-        }
-    }
-
-    fun getEHMangaListWithAgedFlagInfo(): String {
-        return runBlocking {
-            getExhFavoriteMangaWithMetadata.await().map { manga ->
-                val meta = getFlatMetadataById.await(manga.id)?.raise<EHentaiSearchMetadata>() ?: return@map
-                "Aged: ${meta.aged}\t Title: ${manga.title}"
-            }
-        }.joinToString(",\n")
-    }
-
-    fun countAgedFlagInEXHManga(): Int {
-        return runBlocking {
-            getExhFavoriteMangaWithMetadata.await()
-                .count { manga ->
-                    val meta = getFlatMetadataById.await(manga.id)
-                        ?.raise<EHentaiSearchMetadata>()
-                        ?: return@count false
-                    meta.aged
-                }
-        }
-    }
 
     fun addAllMangaInDatabaseToLibrary() {
         runBlocking { ehRepository.addAllMangaInDatabaseToLibrary() }
@@ -184,18 +118,6 @@ class DebugFunctions(
         }
     }
 
-    fun convertAllEhentaiGalleriesToExhentai() = convertSources(EH_SOURCE_ID, EXH_SOURCE_ID)
-
-    fun convertAllExhentaiGalleriesToEhentai() = convertSources(EXH_SOURCE_ID, EH_SOURCE_ID)
-
-    fun testLaunchEhentaiBackgroundUpdater() {
-        EHentaiUpdateWorker.launchBackgroundTest(context)
-    }
-
-    fun rescheduleEhentaiBackgroundUpdater() {
-        EHentaiUpdateWorker.scheduleBackground(context)
-    }
-
     fun listScheduledJobs() = context.jobScheduler.allPendingJobs.joinToString(",\n") { j ->
         val info = j.extras.getString("EXTRA_WORK_SPEC_ID")?.let {
             context.workManager.getWorkInfoById(UUID.fromString(it)).get()
@@ -232,83 +154,6 @@ class DebugFunctions(
         }
     }
 
-    /*fun copyEHentaiSavedSearchesToExhentai() {
-        runBlocking {
-            val source = sourceManager.get(EH_SOURCE_ID) as? CatalogueSource ?: return@runBlocking
-            val newSource = sourceManager.get(EXH_SOURCE_ID) as? CatalogueSource ?: return@runBlocking
-            val savedSearches = prefs.savedSearches().get().mapNotNull {
-                try {
-                    val id = it.substringBefore(':').toLong()
-                    if (id != source.id) return@mapNotNull null
-                    Json.decodeFromString<JsonSavedSearch>(it.substringAfter(':'))
-                } catch (t: RuntimeException) {
-                    // Load failed
-                    xLogE("Failed to load saved search!", t)
-                    t.printStackTrace()
-                    null
-                }
-            }.toMutableList()
-            savedSearches += prefs.savedSearches().get().mapNotNull {
-                try {
-                    val id = it.substringBefore(':').toLong()
-                    if (id != newSource.id) return@mapNotNull null
-                    Json.decodeFromString<JsonSavedSearch>(it.substringAfter(':'))
-                } catch (t: RuntimeException) {
-                    // Load failed
-                    xLogE("Failed to load saved search!", t)
-                    t.printStackTrace()
-                    null
-                }
-            }.filterNot { newSavedSearch -> savedSearches.any { it.name == newSavedSearch.name } }
-
-            val otherSerialized = prefs.savedSearches().get().filter {
-                !it.startsWith("${newSource.id}:")
-            }
-            val newSerialized = savedSearches.map {
-                "${newSource.id}:" + Json.encodeToString(it)
-            }
-            prefs.savedSearches().set((otherSerialized + newSerialized).toSet())
-        }
-    }
-
-    fun copyExhentaiSavedSearchesToEHentai() {
-        runBlocking {
-            val source = sourceManager.get(EXH_SOURCE_ID) as? CatalogueSource ?: return@runBlocking
-            val newSource = sourceManager.get(EH_SOURCE_ID) as? CatalogueSource ?: return@runBlocking
-            val savedSearches = prefs.savedSearches().get().mapNotNull {
-                try {
-                    val id = it.substringBefore(':').toLong()
-                    if (id != source.id) return@mapNotNull null
-                    Json.decodeFromString<JsonSavedSearch>(it.substringAfter(':'))
-                } catch (t: RuntimeException) {
-                    // Load failed
-                    xLogE("Failed to load saved search!", t)
-                    t.printStackTrace()
-                    null
-                }
-            }.toMutableList()
-            savedSearches += prefs.savedSearches().get().mapNotNull {
-                try {
-                    val id = it.substringBefore(':').toLong()
-                    if (id != newSource.id) return@mapNotNull null
-                    Json.decodeFromString<JsonSavedSearch>(it.substringAfter(':'))
-                } catch (t: RuntimeException) {
-                    // Load failed
-                    xLogE("Failed to load saved search!", t)
-                    t.printStackTrace()
-                    null
-                }
-            }.filterNot { newSavedSearch -> savedSearches.any { it.name == newSavedSearch.name } }
-
-            val otherSerialized = prefs.savedSearches().get().filter {
-                !it.startsWith("${newSource.id}:")
-            }
-            val newSerialized = savedSearches.map {
-                "${newSource.id}:" + Json.encodeToString(it)
-            }
-            prefs.savedSearches().set((otherSerialized + newSerialized).toSet())
-        }
-    }*/
 
     fun fixReaderViewerBackupBug() {
         runBlocking { ehRepository.fixReaderViewerBackupBug() }
@@ -316,12 +161,6 @@ class DebugFunctions(
 
     fun resetReaderViewerForAllManga() {
         runBlocking { ehRepository.resetReaderViewerForAllManga() }
-    }
-
-    fun migrateLangNhentaiToMultiLangSource() {
-        val sources = nHentaiSourceIds - NHentai.otherId
-
-        runBlocking { ehRepository.migrateAllNhentaiToOtherLang(NHentai.otherId, sources) }
     }
 
     fun exportProtobufScheme() = ProtoBufSchemaGenerator.generateSchemaText(Backup.serializer().descriptor)

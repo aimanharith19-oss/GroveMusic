@@ -33,9 +33,6 @@ import eu.kanade.presentation.library.LibrarySettingsDialog
 import eu.kanade.presentation.library.components.LibraryContent
 import eu.kanade.presentation.library.components.LibraryToolbar
 import eu.kanade.presentation.library.components.MergeFinishedDialog
-import eu.kanade.presentation.library.components.SyncFavoritesConfirmDialog
-import eu.kanade.presentation.library.components.SyncFavoritesProgressDialog
-import eu.kanade.presentation.library.components.SyncFavoritesWarningDialog
 import eu.kanade.presentation.manga.components.LibraryBottomActionMenu
 import eu.kanade.presentation.more.onboarding.GETTING_STARTED_URL
 import eu.kanade.presentation.util.Tab
@@ -51,7 +48,6 @@ import eu.kanade.tachiyomi.ui.manga.MangaScreen
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.workManager
-import exh.favorites.FavoritesSyncStatus
 import exh.recs.RecommendsScreen
 import exh.recs.batch.RecommendationSearchBottomSheetDialog
 import exh.recs.batch.RecommendationSearchProgressDialog
@@ -207,7 +203,6 @@ data object LibraryTab : Tab {
                             }
                         }
                     },
-                    onClickSyncExh = viewModel::openFavoritesSyncDialog.takeIf { state.showSyncExh },
                     isSyncEnabled = state.isSyncEnabled,
                     // SY <--
                     searchQuery = state.searchQuery,
@@ -379,26 +374,6 @@ data object LibraryTab : Tab {
                 )
             }
             // SY -->
-            LibraryViewModel.Dialog.SyncFavoritesWarning -> {
-                SyncFavoritesWarningDialog(
-                    onDismissRequest = onDismissRequest,
-                    onAccept = {
-                        onDismissRequest()
-                        viewModel.onAcceptSyncWarning()
-                    },
-                )
-            }
-
-            LibraryViewModel.Dialog.SyncFavoritesConfirm -> {
-                SyncFavoritesConfirmDialog(
-                    onDismissRequest = onDismissRequest,
-                    onAccept = {
-                        onDismissRequest()
-                        viewModel.runSync()
-                    },
-                )
-            }
-
             is LibraryViewModel.Dialog.RecommendationSearchSheet -> {
                 RecommendationSearchBottomSheetDialog(
                     selectedCount = dialog.manga.size,
@@ -431,12 +406,6 @@ data object LibraryTab : Tab {
         }
 
         // SY -->
-        SyncFavoritesProgressDialog(
-            status = viewModel.favoritesSync.status.collectAsStateWithLifecycle().value,
-            setStatusIdle = { viewModel.favoritesSync.status.value = FavoritesSyncStatus.Idle },
-            openManga = { navigator.push(MangaScreen(it)) },
-        )
-
         RecommendationSearchProgressDialog(
             status = viewModel.recommendationSearch.status.collectAsStateWithLifecycle().value,
             setStatusIdle = { viewModel.recommendationSearch.status.value = SearchStatus.Idle },

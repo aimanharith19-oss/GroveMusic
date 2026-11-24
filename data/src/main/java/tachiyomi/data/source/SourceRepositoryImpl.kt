@@ -7,8 +7,6 @@ import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.online.HttpSource
-import exh.source.EH_SOURCE_ID
-import exh.source.EXH_SOURCE_ID
 import exh.source.MERGED_SOURCE_ID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -91,29 +89,14 @@ class SourceRepositoryImpl(
         query: String,
         filterList: FilterList,
     ): SourcePagingSource {
-        // SY -->
-        if (sourceId == EH_SOURCE_ID || sourceId == EXH_SOURCE_ID) {
-            return EHentaiSearchPagingSource({ sourceManager.getOrStub(sourceId) }, query, filterList, networkToLocalManga)
-        }
-        // SY <--
         return SourceSearchPagingSource({ sourceManager.getOrStub(sourceId) }, query, filterList, networkToLocalManga)
     }
 
     override fun getPopular(sourceId: Long): SourcePagingSource {
-        // SY -->
-        if (sourceId == EH_SOURCE_ID || sourceId == EXH_SOURCE_ID) {
-            return EHentaiPopularPagingSource({ sourceManager.getOrStub(sourceId) }, networkToLocalManga)
-        }
-        // SY <--
         return SourcePopularPagingSource({ sourceManager.getOrStub(sourceId) }, networkToLocalManga)
     }
 
     override fun getLatest(sourceId: Long): SourcePagingSource {
-        // SY -->
-        if (sourceId == EH_SOURCE_ID || sourceId == EXH_SOURCE_ID) {
-            return EHentaiLatestPagingSource({ sourceManager.getOrStub(sourceId) }, networkToLocalManga)
-        }
-        // SY <--
         return SourceLatestPagingSource({ sourceManager.getOrStub(sourceId) }, networkToLocalManga)
     }
 

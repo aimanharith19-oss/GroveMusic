@@ -13,7 +13,6 @@ import eu.kanade.tachiyomi.data.sync.chapterTombstoneKey
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.online.HttpSource
-import exh.source.isEhBasedManga
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
@@ -227,22 +226,7 @@ class SyncChaptersWithSource(
         }
 
         // SY --> (carry over reading progress)
-        var chaptersToAdd = toAdd
-        if (manga.isEhBasedManga()) {
-            val finalAdded = chaptersToAdd.filterNot { it.url in changedOrDuplicateReadUrls }
-            if (finalAdded.isNotEmpty()) {
-                val max = dbChapters.maxOfOrNull { it.lastPageRead }
-                if (max != null && max > 0) {
-                    chaptersToAdd = chaptersToAdd.map {
-                        if (it.url !in changedOrDuplicateReadUrls) {
-                            it.copy(lastPageRead = max)
-                        } else {
-                            it
-                        }
-                    }
-                }
-            }
-        }
+        val chaptersToAdd = toAdd
         // SY <--
 
         // SY -->

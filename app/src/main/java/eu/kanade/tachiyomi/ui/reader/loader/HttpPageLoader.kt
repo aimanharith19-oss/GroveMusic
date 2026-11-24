@@ -7,7 +7,6 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
-import exh.source.isEhBasedSource
 import exh.util.DataSaver
 import exh.util.DataSaver.Companion.getImage
 import kotlinx.coroutines.CancellationException
@@ -44,8 +43,6 @@ internal class HttpPageLoader(
     // SY -->
     private val dataSaver = DataSaver(source, sourcePreferences)
 
-    // E-Hentai limits how many images an account can view, and how many load at once
-    private val isEhSource = source.isEhBasedSource()
     // SY <--
 
     override var isLocal: Boolean = false
@@ -97,9 +94,7 @@ internal class HttpPageLoader(
 
         val pages = page.chapter.pages.orEmpty()
         if (page.index !in pages.indices) return@withContext
-        // SY -->
-        val (chunkStartSize, chunkEndSize) = if (isEhSource) 1 to EH_MAX_PARALLEL_LOADS else 3 to 5
-        // SY <--
+        val (chunkStartSize, chunkEndSize) = 3 to 5
         pages.loadByRollingChunked(page.index, /* SY --> */ chunkStartSize, chunkEndSize /* SY <-- */) { chunks ->
             val continueLoading = chunks.take(2).flatten().map { it.index }.toSet()
             downloadJobs.keys.filter { it !in continueLoading }
@@ -114,12 +109,6 @@ internal class HttpPageLoader(
         if (page.status is Page.State.Error) {
             page.status = Page.State.Queue
         }
-        // SY -->
-        // Grab a new image URL on EXH sources
-        if (isEhSource) {
-            page.imageUrl = null
-        }
-        // SY <--
 
         val pageIndex = page.index
         downloadJobs.remove(pageIndex)?.cancel()
@@ -188,10 +177,10 @@ internal class HttpPageLoader(
     ) {
         val items = this
         // When loading ahead isn't allowed, only the pages around the one being read load
-        val window = if (/* SY --> */ !isEhSource && /* SY <-- */ canLoadAhead()) {
+        val window = if (canLoadAhead()) {
             items.indices
         } else {
-            (index - 1)..(index + /* SY --> */ if (isEhSource) EH_PAGES_AHEAD else /* SY <-- */ LIMITED_PAGES_AHEAD)
+            (index - 1)..(index + LIMITED_PAGES_AHEAD)
         }
         val chunks = buildList {
             items.getOrNull(index)?.let(::add)
@@ -301,6 +290,4 @@ internal class HttpPageLoader(
 private const val LIMITED_PAGES_AHEAD = 4
 
 // SY -->
-private const val EH_MAX_PARALLEL_LOADS = 2
-private const val EH_PAGES_AHEAD = 10
 // SY <--

@@ -32,9 +32,6 @@ object Notifications {
     const val ID_LIBRARY_ERROR = -102
 
     // SY -->
-    const val CHANNEL_LIBRARY_EHENTAI = "library_ehentai_channel"
-    const val ID_EHENTAI_PROGRESS = -199
-    const val ID_EHENTAI_ERROR = -198
     // SY <--
 
     /**
@@ -167,13 +164,6 @@ object Notifications {
                     setGroup(GROUP_APK_UPDATES)
                     setName(context.stringResource(MR.strings.channel_ext_updates))
                 },
-                // SY -->
-                buildNotificationChannel(CHANNEL_LIBRARY_EHENTAI, IMPORTANCE_LOW) {
-                    setName("EHentai")
-                    setGroup(GROUP_LIBRARY)
-                    setShowBadge(false)
-                },
-                // SY <--
             ),
         )
     }

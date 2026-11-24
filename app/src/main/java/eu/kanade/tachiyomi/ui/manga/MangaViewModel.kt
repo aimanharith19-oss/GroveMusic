@@ -60,14 +60,12 @@ import eu.kanade.tachiyomi.util.removeCovers
 import eu.kanade.tachiyomi.util.system.toast
 import exh.debug.DebugToggles
 import exh.debug.isEnabled
-import exh.eh.EHentaiUpdateHelper
 import exh.log.xLogD
 import exh.md.utils.FollowStatus
 import exh.metadata.metadata.RaisedSearchMetadata
 import exh.metadata.metadata.base.FlatMetadata
 import exh.source.MERGED_SOURCE_ID
 import exh.source.getMainSource
-import exh.source.isEhBasedManga
 import exh.source.mangaDexSourceIds
 import exh.util.nullIfEmpty
 import exh.util.trimOrNull
@@ -173,7 +171,6 @@ class MangaViewModel(
     private val getPagePreviews: GetPagePreviews,
     private val upsertTrack: UpsertTrack,
     private val setMangaUserInfo: SetMangaUserInfo,
-    private val updateHelper: EHentaiUpdateHelper,
     private val preferenceStore: PreferenceStore,
     // SY <--
     private val getDuplicateLibraryManga: GetDuplicateLibraryManga,
@@ -322,8 +319,7 @@ class MangaViewModel(
                 } else {
                     manga to chapters
                 }
-            }
-            .onEach { (manga, chapters) -> redirectToAcceptedRoot(manga, chapters) },
+            },
         // SY <--
         downloadCache.changes.pausedWhileUnsubscribed(),
         downloadManager.queueState.pausedWhileUnsubscribed(),
@@ -454,7 +450,7 @@ class MangaViewModel(
             showMergeWithAnother = smartSearched,
             pagePreviewsState = pagePreviewsState,
             alwaysShowReadingProgress =
-            readerPreferences.preserveReadingPosition.get() && mangaAndChapters.manga.isEhBasedManga(),
+            false,
             previewsRowCount = previewsRowCount,
             // SY <--
         )
@@ -524,28 +520,6 @@ class MangaViewModel(
         }
     }
 
-    // SY -->
-    private fun redirectToAcceptedRoot(manga: Manga, chapters: List<Chapter>) {
-        if (chapters.isEmpty() || !manga.isEhBasedManga() || !DebugToggles.ENABLE_EXH_ROOT_REDIRECT.isEnabled(preferenceStore)) return
-        // Check for gallery in library and accept manga with lowest id
-        // Find chapters sharing same root
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (acceptedChain) = updateHelper.findAcceptedRootAndDiscardOthers(manga.source, chapters)
-                // Redirect if we are not the accepted root
-                if (manga.id != acceptedChain.manga.id && acceptedChain.manga.favorite) {
-                    // Update if any of our chapters are not in accepted manga's chapters
-                    xLogD("Found accepted manga %s", manga.url)
-                    redirectFlow.emit(
-                        EXHRedirect(acceptedChain.manga.id),
-                    )
-                }
-            } catch (e: Exception) {
-                logcat(LogPriority.ERROR, e) { "Error loading accepted chapter chain" }
-            }
-        }
-    }
-    // SY <--
 
     fun fetchAllFromSource(manualFetch: Boolean = true) {
         viewModelScope.launch {
@@ -901,9 +875,6 @@ class MangaViewModel(
         mergedData: MergedMangaData?,
     ): List<ChapterList.Item> {
         val isLocal = manga.isLocal()
-        // SY -->
-        val isExhManga = manga.isEhBasedManga()
-        // SY <--
         val queuedDownloads = if (isLocal) emptyMap() else downloadManager.getQueuedDownloadsByChapterId()
         val downloadedChapterIds = when {
             isLocal -> emptySet()
@@ -940,7 +911,7 @@ class MangaViewModel(
                 downloadState = downloadState,
                 // SY -->
                 sourceName = source?.getNameForMangaInfo(),
-                showScanlator = !isExhManga,
+                showScanlator = true,
                 // SY <--
             )
         }
@@ -1020,11 +991,6 @@ class MangaViewModel(
     private fun getUnreadChaptersSorted(): List<Chapter> {
         val manga = successState?.manga ?: return emptyList()
         val chaptersSorted = getUnreadChapters().sortedWith(getChapterSort(manga))
-            // SY -->
-            .let {
-                if (manga.isEhBasedManga()) it.reversed() else it
-            }
-        // SY <--
         return if (manga.sortDescending()) chaptersSorted.reversed() else chaptersSorted
     }
 
@@ -1243,7 +1209,7 @@ class MangaViewModel(
             val manga = successState?.manga ?: return@launch
             val chaptersToDownload = filterChaptersForDownload.await(manga, chapters)
 
-            if (chaptersToDownload.isNotEmpty() /* SY --> */ && !manga.isEhBasedManga() /* SY <-- */) {
+            if (chaptersToDownload.isNotEmpty() ) {
                 downloadChapters(chaptersToDownload)
             }
         }
