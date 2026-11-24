@@ -940,13 +940,13 @@
     <string name="supportUsScreen.perks">Els mecenes tenen accés a canals exclusius, i en el futur tindran més avantatges.</string>
     <string name="supportUsScreen.donationPlatform.patreon">Patreon (preferit)</string>
     <string name="supportUsScreen.donationPlatform.opencollective">OpenCollective</string>
-    <string name="supportUsScreen.currentlySupportedBy">El Mihon rep el suport de més de %d mecenes. Volem donar-vos les gràcies a tots vosaltres. Junts, fem que el Mihon sigui encara millor.</string>
+    <string name="supportUsScreen.currentlySupportedBy">El GroveMedia rep el suport de més de %d mecenes. Volem donar-vos les gràcies a tots vosaltres. Junts, fem que el GroveMedia sigui encara millor.</string>
     <string name="supportUsScreen.contactForDetailsMessage">Per a opcions alternatives o altres qüestions relacionades, uniu-vos al nostre servidor del Discord.</string>
     <string name="supportUsScreen.contactPlatform">Discord</string>
     <string name="donationCampaign.title">Us agrada l’aplicació?</string>
-    <string name="donationCampaign.paragraph1">Ep! Sóc el desenvolupador principal del Mihon, i m’agradaria demanar-vos que considereu donar suport financer al desenvolupament de l’aplicació. Amb prou suport, podré treballar en el Mihon a temps complet i centrar-me a corregir problemes que fa temps que existeixen i a desenvolupar funcionalitats molt demanades.</string>
-    <string name="donationCampaign.paragraph2">Podeu fer un donatiu mitjançant el Patreon (preferit) o OpenCollective. Si teniu qüestions o voleu donar-hi suport mitjançant altres mètodes alternatius, no dubteu a contactar amb mi mitjançant el servidor del Discord del Mihon.</string>
-    <string name="donationCampaign.paragraph3">Sigui com sigui, els voluntaris i jo continuarem mantenint el Mihon i continuarà sent de codi obert.</string>
+    <string name="donationCampaign.paragraph1">Ep! Sóc el desenvolupador principal del GroveMedia, i m’agradaria demanar-vos que considereu donar suport financer al desenvolupament de l’aplicació. Amb prou suport, podré treballar en el GroveMedia a temps complet i centrar-me a corregir problemes que fa temps que existeixen i a desenvolupar funcionalitats molt demanades.</string>
+    <string name="donationCampaign.paragraph2">Podeu fer un donatiu mitjançant el Patreon (preferit) o OpenCollective. Si teniu qüestions o voleu donar-hi suport mitjançant altres mètodes alternatius, no dubteu a contactar amb mi mitjançant el servidor del Discord del GroveMedia.</string>
+    <string name="donationCampaign.paragraph3">Sigui com sigui, els voluntaris i jo continuarem mantenint el GroveMedia i continuarà sent de codi obert.</string>
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Ignora</string>
     <string name="refresh_tracker_profile">Actualitza el perfil del servei de seguiment</string>

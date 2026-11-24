@@ -56,8 +56,8 @@ class MetroInjektRegistrar(
 
     override fun <T : Any> hasFactory(forType: TypeReference<T>): Boolean = forType.type in bindings
 
-    private fun readOnly(): Nothing = throw UnsupportedOperationException("Mihon's Injekt instance is read-only")
+    private fun readOnly(): Nothing = throw UnsupportedOperationException("GroveMedia's Injekt instance is read-only")
 
     private fun unsupported(feature: String): Nothing =
-        throw UnsupportedOperationException("$feature is not supported by Mihon's Injekt instance")
+        throw UnsupportedOperationException("$feature is not supported by GroveMedia's Injekt instance")
 }

@@ -49,7 +49,7 @@ class ComickPagingSource(
         val mangasPage = coroutineScope {
             val headers = Headers.Builder().apply {
                 add("Referer", "api.comick.fun/")
-                add("User-Agent", "Tachiyomi ${System.getProperty("http.agent")}")
+                add("User-Agent", "GroveMedia ${System.getProperty("http.agent")}")
             }
 
             // Comick extension populates the URL field with: '/comic/{hid}#'

@@ -248,7 +248,7 @@
     <string name="error_tag_exists">Esta tag já existe!</string>
     <!-- Extension section -->
     <string name="ext_redundant">Redundante</string>
-    <string name="redundant_extension_message">Esta extensão é redundante e não será usada nesta versão do Tachiyomi.</string>
+    <string name="redundant_extension_message">Esta extensão é redundante e não será usada nesta versão do GroveMedia.</string>
     <string name="migration">Migração</string>
     <!-- Library -->
     <!-- Library Actions -->

@@ -662,7 +662,7 @@
     <string name="migrationListScreen.unknownLatestChapter">ناشناخته</string>
     <string name="extensionStoresScreen.addStore.processing">در حال پردازش…</string>
     <string name="migrationConfigScreen.deepSearchModeSubtitle">عنوان را برای جستجوی گسترده‌تر به کلمات کلیدی تجزیه می‌کند</string>
-    <string name="donationCampaign.paragraph2">می‌توانید از طریق Patreon (که روش پیشنهادی است) یا اوپن‌کالکتیو کمک مالی کنید. اگر سؤالی دارید یا مایلید از روش‌های دیگری حمایت کنید، می‌توانید به‌راحتی از طریق سرور دیسکورد Mihon با من در تماس باشید.</string>
+    <string name="donationCampaign.paragraph2">می‌توانید از طریق Patreon (که روش پیشنهادی است) یا اوپن‌کالکتیو کمک مالی کنید. اگر سؤالی دارید یا مایلید از روش‌های دیگری حمایت کنید، می‌توانید به‌راحتی از طریق سرور دیسکورد GroveMedia با من در تماس باشید.</string>
     <string name="are_you_sure">مطمئن هستید؟</string>
     <string name="pref_firebase">تحلیل‌ها و گزارش‌های خرابی</string>
     <string name="action_toggle_private_on">ردیابی خصوصی</string>

@@ -304,7 +304,7 @@
     <string name="add_tag">Añadir etiqueta</string>
     <string name="find_in_another_source">Buscar en otra fuente</string>
     <string name="delete_tag">Eliminar etiqueta</string>
-    <string name="redundant_extension_message">Esta extensión es redundante y no será usada dentro de esta versión de Tachiyomi.</string>
+    <string name="redundant_extension_message">Esta extensión es redundante y no será usada dentro de esta versión de GroveMedia.</string>
     <string name="no_valid_entry">Ninguna entrada válida seleccionada</string>
     <string name="ungrouped">Desagrupado</string>
     <string name="favorites_sync_error">Error al sincronizar favoritos</string>

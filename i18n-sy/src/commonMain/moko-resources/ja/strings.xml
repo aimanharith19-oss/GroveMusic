@@ -361,7 +361,7 @@
     <string name="delete_tag_confirmation">タグ %s を削除しますか?</string>
     <!-- Extension section -->
     <string name="ext_redundant">冗長</string>
-    <string name="redundant_extension_message">この拡張機能は不要であり、このバージョンの Tachiyomi では使用されません。</string>
+    <string name="redundant_extension_message">この拡張機能は不要であり、このバージョンの GroveMedia では使用されません。</string>
     <string name="migration">移行</string>
     <!-- Library -->
     <!-- Library Actions -->

@@ -267,7 +267,7 @@
     <string name="error_tag_exists">Tag ini sudah ada!</string>
     <!-- Extension section -->
     <string name="ext_redundant">Duplikat</string>
-    <string name="redundant_extension_message">Ekstensi ini duplikat dan tak akan digunakan di dalam versi Tachiyomi ini.</string>
+    <string name="redundant_extension_message">Ekstensi ini duplikat dan tak akan digunakan di dalam versi GroveMedia ini.</string>
     <string name="migration">Migrasi</string>
     <!-- Library -->
     <!-- Library Actions -->

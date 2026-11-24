@@ -339,7 +339,7 @@
     <string name="data_saver_stop_exclude">Veri tasarrufundan hariç tutmayı bırak</string>
     <string name="action_edit_tags">Etiketleri düzenle</string>
     <string name="information_empty_tags">Etiketiniz yok. Kitaplığınızı etiketlere göre sıralamak için artı butonuna basarak bir tane oluşturun</string>
-    <string name="redundant_extension_message">Bu eklenti Tachiyomi\'nin bu versiyonunda kullanılmayacaktır.</string>
+    <string name="redundant_extension_message">Bu eklenti GroveMedia\'nin bu versiyonunda kullanılmayacaktır.</string>
     <string name="sync_favorites">EH favorilerini eşitle</string>
     <string name="favorites_sync_error_string">Eşitleme sürecinde bir hata oluştu: %1$s</string>
     <string name="favorites_sync_adding_to_remote">%2$d galeri içinden %1$d. galeri uzak sunucuya ekleniyor</string>

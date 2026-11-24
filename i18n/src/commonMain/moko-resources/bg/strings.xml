@@ -239,7 +239,7 @@
     <string name="ext_untrusted">Непотвърдени</string>
     <string name="ext_uninstall">Деинсталирай</string>
     <string name="untrusted_extension">Непотвърдено разширение</string>
-    <string name="untrusted_extension_message">Следното разширение имаше непотвърден сертификат и не беше активирано. \n \nЗлонамереното разширение може да види всичката информация за вход в системата на Mihon или да компилира неблагонадежден код. \n \nПотвърждавайки този сертификат, вие приемате тези рискове.</string>
+    <string name="untrusted_extension_message">Следното разширение имаше непотвърден сертификат и не беше активирано. \n \nЗлонамереното разширение може да види всичката информация за вход в системата на GroveMedia или да компилира неблагонадежден код. \n \nПотвърждавайки този сертификат, вие приемате тези рискове.</string>
     <string name="pref_double_tap_anim_speed">Скорост на анимацията</string>
     <string name="double_tap_anim_speed_0">Без анимация</string>
     <string name="double_tap_anim_speed_normal">Нормална</string>
@@ -291,7 +291,7 @@
     <string name="channel_ext_updates">Ъпдейти на разширенията</string>
     <string name="channel_new_chapters">Нови глави</string>
     <string name="information_webview_outdated">Моля, обновете WebView за по-добра съвместимост</string>
-    <string name="information_webview_required">WebView е необходим за Mihon</string>
+    <string name="information_webview_required">WebView е необходим за GroveMedia</string>
     <string name="information_cloudflare_bypass_failure">Грешка при минаването през Cloudflare</string>
     <string name="notification_chapters_multiple">Глави %1$s</string>
     <string name="notification_chapters_single_and_more">Глава %1$s и %2$d още</string>
@@ -737,10 +737,10 @@
     <string name="supportUsScreen.perks">Патроните получават достъп до ексклузивни канали, като предстоят още предимства.</string>
     <string name="supportUsScreen.donationPlatform.patreon">Patreon (предпочитан)</string>
     <string name="supportUsScreen.donationPlatform.opencollective">OpenCollective</string>
-    <string name="supportUsScreen.currentlySupportedBy">В момента Mihon се подкрепя от %d+ патрони. Искаме да благодарим на всеки един от вас. Нека заедно направим Mihon още по-добър.</string>
+    <string name="supportUsScreen.currentlySupportedBy">В момента GroveMedia се подкрепя от %d+ патрони. Искаме да благодарим на всеки един от вас. Нека заедно направим GroveMedia още по-добър.</string>
     <string name="supportUsScreen.contactPlatform">Discord</string>
-    <string name="donationCampaign.paragraph1">Здравейте! Аз съм основният разработчик на Mihon и бих искал да ви помоля да обмислите финансова подкрепа за проекта. При достатъчно подкрепа ще мога да се занимавам с Mihon на пълен работен ден и да се съсредоточа както върху отдавна съществуващи проблеми, така и върху силно желани от потребителите функции.</string>
-    <string name="donationCampaign.paragraph2">Можете да направите дарение чрез Patreon (за предпочитане) или OpenCollective. Ако имате въпроси или желаете да окажете подкрепа чрез алтернативни методи, не се колебайте да се свържете с мен в Discord сървъра на Mihon.</string>
+    <string name="donationCampaign.paragraph1">Здравейте! Аз съм основният разработчик на GroveMedia и бих искал да ви помоля да обмислите финансова подкрепа за проекта. При достатъчно подкрепа ще мога да се занимавам с GroveMedia на пълен работен ден и да се съсредоточа както върху отдавна съществуващи проблеми, така и върху силно желани от потребителите функции.</string>
+    <string name="donationCampaign.paragraph2">Можете да направите дарение чрез Patreon (за предпочитане) или OpenCollective. Ако имате въпроси или желаете да окажете подкрепа чрез алтернативни методи, не се колебайте да се свържете с мен в Discord сървъра на GroveMedia.</string>
     <string name="ext_unsupported_message">Това разширение е създадено за версия на библиотеката с разширения, която тази версия на приложението не може да зареди. Актуализирането на приложението или на разширението може да помогне.</string>
     <string name="migrationListScreenTitle">Миграция</string>
     <string name="migrationListScreenTitleWithProgress">Миграция (%1$d/%2$d)</string>
@@ -762,7 +762,7 @@
     <string name="migrationListScreen.progressDialog.cancelLabel">Прекрати</string>
     <string name="migrationListScreen.matchWithoutChapterToast">Не са открити глави; този запис не може да се използва за миграция.</string>
     <string name="donationCampaign.title">Харесва ли ти приложението?</string>
-    <string name="donationCampaign.paragraph3">Въпреки това, Mihon ще продължи да се поддържа от мен и доброволците и ще остане с отворен код.</string>
+    <string name="donationCampaign.paragraph3">Въпреки това, GroveMedia ще продължи да се поддържа от мен и доброволците и ще остане с отворен код.</string>
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Отхвърли</string>
     <string name="scanlator">Скано-преводач</string>

@@ -352,7 +352,7 @@
     <string name="delete_tag_confirmation">您想要刪除標籤 %s 嗎？</string>
     <!-- Extension section -->
     <string name="ext_redundant">廢棄</string>
-    <string name="redundant_extension_message">此擴充套件已廢棄，將不會在此版本的 TachiyomiSY 上執行。</string>
+    <string name="redundant_extension_message">此擴充套件已廢棄，將不會在此版本的 GroveMedia 上執行。</string>
     <string name="migration">遷移</string>
     <!-- Library -->
     <!-- Library Actions -->

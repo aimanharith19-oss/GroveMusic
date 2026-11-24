@@ -872,13 +872,13 @@
     <string name="transition_animation_flip_right">Гартанне управа</string>
     <string name="webgpu_viewer">WebGPU</string>
     <string name="extensionStoresScreen.deleteStore.body">Ці выдаліць краму пашырэнняў «%1$s» (%2$s)?</string>
-    <string name="supportUsScreen.currentlySupportedBy">Зараз Mihon падтрымліваюць %d+ спонсараў. Мы ўдзячныя кожнаму з вас. Зробім Mihon яшчэ лепей разам.</string>
+    <string name="supportUsScreen.currentlySupportedBy">Зараз GroveMedia падтрымліваюць %d+ спонсараў. Мы ўдзячныя кожнаму з вас. Зробім GroveMedia яшчэ лепей разам.</string>
     <string name="transition_animation_cube_inside">Куб (унутры)</string>
     <string name="transition_animation_cube_outside">Куб (звонку)</string>
     <string name="pref_vertical_navigator">Ужыць вертыкальную навігацыю па раздзелах у</string>
     <string name="downloading_with_progress">Пампуецца… (%d%%)</string>
     <string name="extensionStoresScreen.addStore.processing">Апрацоўка…</string>
-    <string name="donationCampaign.paragraph2">Вы можаце падтрымаць праект праз Patreon (рэкамендуецца) ці OpenCollective. Калі ў вас ёсць пытанні або вы хочаце скарыстацца іншымі спосабамі падтрымкі, пішыце мне на Discord-сервер Mihon.</string>
+    <string name="donationCampaign.paragraph2">Вы можаце падтрымаць праект праз Patreon (рэкамендуецца) ці OpenCollective. Калі ў вас ёсць пытанні або вы хочаце скарыстацца іншымі спосабамі падтрымкі, пішыце мне на Discord-сервер GroveMedia.</string>
     <string name="cutout_mode_avoid">Абмінаць</string>
     <string name="transition_animation_sphere">Сфера</string>
     <string name="considering">Разглядаецца</string>
@@ -887,7 +887,7 @@
     <string name="extensionStores">Крамы пашырэнняў</string>
     <string name="supportUsScreen.contactPlatform">Discord</string>
     <string name="pref_continuous_gap">Водступ</string>
-    <string name="donationCampaign.paragraph3">Незалежна ад гэтага, Mihon застанецца праграмай з адкрытым кодам, і я разам з валанцёрамі працягну працаваць над ёй.</string>
+    <string name="donationCampaign.paragraph3">Незалежна ад гэтага, GroveMedia застанецца праграмай з адкрытым кодам, і я разам з валанцёрамі працягну працаваць над ёй.</string>
     <string name="transition_animation_basic">Базавая</string>
     <string name="pref_continuous_minwidth">Мінімальная шырыня</string>
     <string name="transition_animation_flip_left">Гартанне улева</string>
@@ -923,7 +923,7 @@
     <string name="donationCampaign.title">Падабаецца праграма?</string>
     <string name="pref_cutout_mode">Рэжым выразу экрана</string>
     <string name="transition_animation_stack_left">Накладанне ўлева</string>
-    <string name="donationCampaign.paragraph1">Вітаю! Я — галоўны распрацоўшчык Mihon, і хачу папрасіць вас падтрымаць праект фінансава. Маючы дастаткова падтрымкі, я змагу працаваць над Mihon на поўную стаўку і засяродзіцца як на даўніх хібах, так і на функцыях, пра якія вы даўно прасілі.</string>
+    <string name="donationCampaign.paragraph1">Вітаю! Я — галоўны распрацоўшчык GroveMedia, і хачу папрасіць вас падтрымаць праект фінансава. Маючы дастаткова падтрымкі, я змагу працаваць над GroveMedia на поўную стаўку і засяродзіцца як на даўніх хібах, так і на функцыях, пра якія вы даўно прасілі.</string>
     <string name="pref_cutout_mode_dual">Рэжым выразу экрана (падвойны)</string>
     <string name="cutout_mode_shift">Ссоўваць</string>
     <string name="donationCampaign.contactPlatform">Discord</string>

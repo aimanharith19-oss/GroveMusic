@@ -870,13 +870,13 @@
     <string name="transition_animation_flip_right">पेज फ्लिप (दाएँ)</string>
     <string name="webgpu_viewer">वेबजीपीयू</string>
     <string name="extensionStoresScreen.deleteStore.body">क्या आप एक्सटेंशन स्टोर \"%1$s\" (%2$s) को हटाना चाहते हैं?</string>
-    <string name="supportUsScreen.currentlySupportedBy">Mihon को वर्तमान में %d+ पैट्रन्स का समर्थन प्राप्त है। हम आप सभी में से हर एक को धन्यवाद देना चाहते हैं। आइए, मिलकर Mihon को और भी बेहतर बनाएं।</string>
+    <string name="supportUsScreen.currentlySupportedBy">GroveMedia को वर्तमान में %d+ पैट्रन्स का समर्थन प्राप्त है। हम आप सभी में से हर एक को धन्यवाद देना चाहते हैं। आइए, मिलकर GroveMedia को और भी बेहतर बनाएं।</string>
     <string name="transition_animation_cube_inside">क्यूब (अंदर)</string>
     <string name="transition_animation_cube_outside">क्यूब (बाहर)</string>
     <string name="pref_vertical_navigator">वर्टिकल चैप्टर नेविगेटर का उपयोग करें</string>
     <string name="downloading_with_progress">डाउनलोड हो रहा है… (%d%%)</string>
     <string name="extensionStoresScreen.addStore.processing">प्रोसेसिंग…</string>
-    <string name="donationCampaign.paragraph2">आप Patreon (पसंदीदा) या OpenCollective के माध्यम से दान कर सकते हैं। यदि आपके कोई प्रश्न हैं या आप किसी वैकल्पिक तरीके से समर्थन करना चाहते हैं, तो बेझिझक Mihon के Discord सर्वर के माध्यम से मुझसे संपर्क करें।</string>
+    <string name="donationCampaign.paragraph2">आप Patreon (पसंदीदा) या OpenCollective के माध्यम से दान कर सकते हैं। यदि आपके कोई प्रश्न हैं या आप किसी वैकल्पिक तरीके से समर्थन करना चाहते हैं, तो बेझिझक GroveMedia के Discord सर्वर के माध्यम से मुझसे संपर्क करें।</string>
     <string name="cutout_mode_avoid">बचें</string>
     <string name="transition_animation_sphere">गोला</string>
     <string name="considering">विचाराधीन</string>
@@ -885,7 +885,7 @@
     <string name="extensionStores">एक्सटेंशन स्टोर्स</string>
     <string name="supportUsScreen.contactPlatform">डिस्कॉर्ड</string>
     <string name="pref_continuous_gap">अंतर</string>
-    <string name="donationCampaign.paragraph3">चाहे कुछ भी हो, Mihon का रखरखाव मेरे और स्वयंसेवकों द्वारा जारी रहेगा और यह ओपन सोर्स बना रहेगा।</string>
+    <string name="donationCampaign.paragraph3">चाहे कुछ भी हो, GroveMedia का रखरखाव मेरे और स्वयंसेवकों द्वारा जारी रहेगा और यह ओपन सोर्स बना रहेगा।</string>
     <string name="transition_animation_basic">बेसिक</string>
     <string name="download_bookmarked">बुकमार्क किया गया</string>
     <string name="pref_continuous_minwidth">न्यूनतम चौड़ाई</string>
@@ -923,7 +923,7 @@
     <string name="donationCampaign.title">क्या आपको ऐप पसंद आ रहा है?</string>
     <string name="pref_cutout_mode">डिस्प्ले कटआउट मोड</string>
     <string name="transition_animation_stack_left">स्टैक (बाएँ)</string>
-    <string name="donationCampaign.paragraph1">नमस्ते! मैं Mihon का मुख्य डेवलपर हूँ और मैं आपसे इसके विकास में आर्थिक रूप से सहयोग करने पर विचार करने का अनुरोध करना चाहता हूँ। पर्याप्त समर्थन मिलने पर, मैं Mihon पर पूर्णकालिक रूप से काम कर पाऊँगा और लंबे समय से चली आ रही समस्याओं के साथ-साथ उपयोगकर्ताओं द्वारा सबसे अधिक अनुरोध की गई सुविधाओं पर भी ध्यान दे पाऊँगा।</string>
+    <string name="donationCampaign.paragraph1">नमस्ते! मैं GroveMedia का मुख्य डेवलपर हूँ और मैं आपसे इसके विकास में आर्थिक रूप से सहयोग करने पर विचार करने का अनुरोध करना चाहता हूँ। पर्याप्त समर्थन मिलने पर, मैं GroveMedia पर पूर्णकालिक रूप से काम कर पाऊँगा और लंबे समय से चली आ रही समस्याओं के साथ-साथ उपयोगकर्ताओं द्वारा सबसे अधिक अनुरोध की गई सुविधाओं पर भी ध्यान दे पाऊँगा।</string>
     <string name="pref_cutout_mode_dual">डिस्प्ले कटआउट मोड (ड्युअल)</string>
     <string name="cutout_mode_shift">स्थानांतरित करें</string>
     <string name="donationCampaign.contactPlatform">डिस्कॉर्ड</string>

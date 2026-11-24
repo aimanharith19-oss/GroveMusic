@@ -56,7 +56,7 @@ class ComickApi(
                 .header(
                     "User-Agent",
                     buildString {
-                        append(/* SY --> */"TachiyomiSY/v${BuildConfig.VERSION_NAME} " /* SY <-- */)
+                        append(/* SY --> */"GroveMedia/v${BuildConfig.VERSION_NAME} " /* SY <-- */)
                         append("(${BuildConfig.APPLICATION_ID}) ${BuildConfig.COMMIT_SHA}) ")
                         append("(Android) (https://github.com/mihonapp/mihon)")
                     },
