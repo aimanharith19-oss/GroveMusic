@@ -64,7 +64,7 @@ class ShelfDb(ctx: Context) : SQLiteOpenHelper(ctx.applicationContext, "grovemed
     fun progress(id: Long, page: Int, pages: Int, addMs: Long) {
         writableDatabase.execSQL(
             "UPDATE shelf SET page = ?, pages = ?, last_read = ?, read_ms = read_ms + ? WHERE id = ?",
-            arrayOf(page, pages, System.currentTimeMillis(), addMs, id)
+            arrayOf<Any>(page, pages, System.currentTimeMillis(), addMs, id)
         )
     }
 
