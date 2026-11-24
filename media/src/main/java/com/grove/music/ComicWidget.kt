@@ -52,18 +52,18 @@ object ComicWidget {
         val m = AppWidgetManager.getInstance(ctx)
         val ids = m.getAppWidgetIds(ComponentName(ctx, WidgetComics::class.java))
         if (ids.isEmpty()) return
-        val db = ShelfDb(ctx)
-        val favs = db.onlineAll()
-        val fresh = favs.filter { it.newCount > 0 }.sortedByDescending { it.updatedAt }
-        val reading = db.onlineHistory(8)
-        val tiles = (fresh.map { Tile(it.title, it.cover, "${it.newCount} new") } +
-            reading.map { Tile(it.title.ifBlank { it.chapter }, it.cover, null) })
+        // the comics library: comics with unread chapters first, then what you read last
+        val lib = Books.library(ctx)
+        val fresh = lib.filter { it.unread > 0 }
+        val reading = Books.recent(ctx, 8)
+        val tiles = (fresh.map { Tile(it.title, (it.cover as? java.io.File)?.path ?: it.cover?.toString(), "${it.unread} new") } +
+            reading.map { Tile(it.title, (it.cover as? java.io.File)?.path ?: it.cover?.toString(), null) })
             .distinctBy { it.title }.take(4)
-        val newTotal = fresh.sumOf { it.newCount }
+        val newTotal = fresh.sumOf { it.unread }
 
         val v = RemoteViews(ctx.packageName, R.layout.gm_widget_comics)
         v.setTextViewText(R.id.c_sub, when {
-            newTotal > 0 -> "$newTotal new chapters"
+            newTotal > 0 -> "$newTotal unread"
             tiles.isEmpty() -> "add comics in GroveMedia"
             else -> "keep reading"
         })
@@ -99,13 +99,7 @@ object ComicWidget {
 /** Checks library comics for new chapters every few hours and posts a notification with the comic icon. */
 class ComicUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        val ctx = applicationContext
-        val before = ShelfDb(ctx).onlineAll().associate { "${it.source}|${it.url}" to it.newCount }
-        OnlineUpdates.check(ctx)
-        val after = ShelfDb(ctx).onlineAll()
-        val gained = after.mapNotNull { f -> (f.newCount - (before["${f.source}|${f.url}"] ?: 0)).takeIf { it > 0 }?.let { f to it } }
-        if (gained.isNotEmpty()) notify(ctx, gained)
-        ComicWidget.refreshNow(ctx)
+        ComicWidget.refreshNow(applicationContext)
         return Result.success()
     }
 
@@ -114,28 +108,10 @@ class ComicUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorke
         private const val NAME = "grovemedia_comic_updates"
 
         fun schedule(ctx: Context) {
-            val req = PeriodicWorkRequestBuilder<ComicUpdateWorker>(6, TimeUnit.HOURS)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            val req = PeriodicWorkRequestBuilder<ComicUpdateWorker>(1, TimeUnit.HOURS)
                 .build()
-            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, req)
+            WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, req)
         }
 
-        private fun notify(ctx: Context, gained: List<Pair<OnlineFav, Int>>) {
-            if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-            val nm = ctx.getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Comic updates", NotificationManager.IMPORTANCE_DEFAULT))
-            val total = gained.sumOf { it.second }
-            val lines = gained.joinToString("\n") { (f, n) -> "${f.title} · $n new" }
-            val n = NotificationCompat.Builder(ctx, CHANNEL)
-                .setSmallIcon(R.drawable.gm_comic)
-                .setContentTitle(if (gained.size == 1) gained[0].first.title else "$total new chapters")
-                .setContentText(if (gained.size == 1) "${gained[0].second} new chapters" else gained.joinToString(", ") { it.first.title })
-                .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
-                .setContentIntent(ComicWidget.openComics(ctx))
-                .setAutoCancel(true)
-                .build()
-            NotificationManagerCompat.from(ctx).notify(7101, n)
-        }
     }
 }
