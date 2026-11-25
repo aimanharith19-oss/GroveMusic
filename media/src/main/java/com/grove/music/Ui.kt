@@ -854,7 +854,6 @@ fun BooksPage(accent: Color) {
                 }
             }
         }
-        item { HomeForToday(vm, accent) }
         item { ContinueReading(accent, Modifier.padding(top = 14.dp)) }
         item { BackupBox(accent, Modifier.padding(top = 14.dp)) }
     }
@@ -1752,6 +1751,7 @@ fun HubPage(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Sc
                 row("new videos", newest)
             }
         }
+        item { HomeForToday(vm, accent) }
         item { ContinueReading(accent, Modifier.padding(top = 14.dp)) }
         if (rediscover.size >= 5) item {
             Column(Modifier.padding(top = 18.dp).fillMaxWidth().background(Brush.horizontalGradient(listOf(accent, lerp(accent, Color.Black, 0.5f)))).padding(14.dp)) {
