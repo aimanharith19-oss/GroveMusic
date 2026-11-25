@@ -161,17 +161,17 @@ class PlaybackService : MediaLibraryService() {
 
     private fun stopCarLyrics(player: Player) {
         lyricJob?.cancel(); lyricJob = null
-        val item = player.currentMediaItem ?: return
-        byId()[item.mediaId]?.let { setCarLines(player, it.title, it.artist, it.album) }
+        fwd?.setOverlay(null)
     }
 
+    /**
+     * Car lyrics no longer rewrite the song in the queue (that made the phone player show the lyric
+     * as the title too, and reloaded the queue every line). Only what the car / notification reads
+     * as "now playing" changes; the app's own player keeps the real title.
+     */
     private fun setCarLines(player: Player, title: String, artist: String, album: String) {
-        val idx = player.currentMediaItemIndex
-        val item = player.currentMediaItem ?: return
-        val m = item.mediaMetadata
-        if (m.title?.toString() == title && m.artist?.toString() == artist && m.albumTitle?.toString() == album) return
-        player.replaceMediaItem(idx, item.buildUpon().setMediaMetadata(m.buildUpon().setTitle(title).setDisplayTitle(title)
-            .setArtist(artist).setAlbumTitle(album).build()).build())
+        val base = player.currentMediaItem?.mediaMetadata ?: return
+        fwd?.setOverlay(base.buildUpon().setTitle(title).setDisplayTitle(title).setArtist(artist).setAlbumTitle(album).build())
     }
 
     private fun setArtistLine(player: Player, text: String) {
@@ -288,7 +288,26 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** the player the app, notification and car control: skips go through [blend] so they crossfade too */
-    private fun xfade(p: ExoPlayer) = object : androidx.media3.common.ForwardingPlayer(p) {
+    private var fwd: GrovePlayer? = null
+    private fun xfade(p: ExoPlayer) = GrovePlayer(p).also { fwd = it }
+
+    inner class GrovePlayer(private val p: ExoPlayer) : androidx.media3.common.ForwardingPlayer(p) {
+        private var overlay: androidx.media3.common.MediaMetadata? = null
+        private var overlayFor: String? = null
+        private val ls = java.util.concurrent.CopyOnWriteArrayList<Player.Listener>()
+        override fun addListener(listener: Player.Listener) { ls += listener; super.addListener(listener) }
+        override fun removeListener(listener: Player.Listener) { ls -= listener; super.removeListener(listener) }
+        override fun getMediaMetadata(): androidx.media3.common.MediaMetadata =
+            overlay?.takeIf { overlayFor == p.currentMediaItem?.mediaId } ?: super.getMediaMetadata()
+
+        fun setOverlay(m: androidx.media3.common.MediaMetadata?) {
+            if (m == overlay) return
+            overlay = m; overlayFor = p.currentMediaItem?.mediaId
+            val now = getMediaMetadata()
+            val ev = Player.Events(androidx.media3.common.FlagSet.Builder().add(Player.EVENT_MEDIA_METADATA_CHANGED).build())
+            ls.forEach { runCatching { it.onMediaMetadataChanged(now); it.onEvents(this, ev) } }
+        }
+
         override fun seekToNext() = dip(p) { p.seekToNext() }
         override fun seekToNextMediaItem() = dip(p) { p.seekToNextMediaItem() }
         override fun seekToPrevious() { if (p.currentPosition > 3000) p.seekToPrevious() else dip(p) { p.seekToPrevious() } }
@@ -606,7 +625,12 @@ class PlayerConnection(private val ctx: Context) {
     private val pending = ArrayList<(MediaController) -> Unit>()
 
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = sync(player)
+        override fun onEvents(player: Player, events: Player.Events) {
+            // rebuilding the up-next list is the heavy part: only when the queue itself changed
+            val queueChanged = events.containsAny(Player.EVENT_TIMELINE_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION,
+                Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED)
+            sync(player, queueChanged)
+        }
     }
 
     private val future = MediaController.Builder(
@@ -618,7 +642,7 @@ class PlayerConnection(private val ctx: Context) {
             val c = runCatching { future.get() }.getOrNull() ?: return@addListener
             controller = c
             c.addListener(listener)
-            sync(c)
+            sync(c, true)
             pending.forEach { it(c) }
             pending.clear()
         }, ContextCompat.getMainExecutor(ctx))
@@ -628,12 +652,13 @@ class PlayerConnection(private val ctx: Context) {
         controller?.let(block) ?: pending.add(block)
     }
 
-    private fun sync(p: Player) {
+    private fun sync(p: Player, queueChanged: Boolean) {
         current.value = p.currentMediaItem
         // follow what the user asked for (play / pause), not momentary buffering
         isPlaying.value = p.playWhenReady && p.playbackState != Player.STATE_ENDED
         shuffle.value = p.shuffleModeEnabled
         repeatMode.intValue = p.repeatMode
+        if (!queueChanged) return
         val t = p.currentTimeline
         val next = ArrayList<Pair<Int, MediaItem>>()
         if (!t.isEmpty && p.currentMediaItemIndex != C.INDEX_UNSET) {

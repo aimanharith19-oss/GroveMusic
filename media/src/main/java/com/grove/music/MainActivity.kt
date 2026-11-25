@@ -31,18 +31,16 @@ class MainActivity : ComponentActivity() {
         val best = d.supportedModes
             .filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
             .maxByOrNull { it.refreshRate } ?: return@runCatching
+        // only touch the window when the mode really changes: re-setting it on every return to the app made it stutter
+        if (window.attributes.preferredDisplayModeId == best.modeId) return@runCatching
         window.attributes = window.attributes.apply { preferredDisplayModeId = best.modeId; preferredRefreshRate = best.refreshRate }
     }
 
     override fun onStop() {
         super.onStop()
         // switch the launcher icon to the current accent colour once the app is in the background
-        IconSwitcher.apply(this, Prefs(this).accent)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        useHighestRefreshRate()
+        val app = applicationContext
+        Thread { runCatching { IconSwitcher.apply(app, Prefs(app).accent) } }.start()
     }
 
     override fun onNewIntent(intent: Intent) {

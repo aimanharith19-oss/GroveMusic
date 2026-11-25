@@ -760,19 +760,32 @@ fun rememberTab(key: String, default: String): MutableState<String> {
     return st
 }
 
-/** Second row of pivot headers inside a tab (songs · artists…, library · updates…). */
+/**
+ * The tabs inside a tab (songs · artists…, library · updates…), as a bar at the BOTTOM of the page
+ * where your thumb is: every tab is a big, equal-width target. Swipe sideways on the bar to step tabs.
+ */
 @Composable
 fun SubPivot(items: List<String>, sel: String, accent: Color, badge: (String) -> Int = { 0 }, onSel: (String) -> Unit) {
-    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(18.dp),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        itemsIndexed(items) { _, it ->
-            Column(Modifier.tilt { onSel(it) }) {
+    val idx = items.indexOf(sel).coerceAtLeast(0)
+    var dragged by remember { mutableFloatStateOf(0f) }
+    Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = 0.35f))
+        .pointerInput(items, sel) {
+            detectHorizontalDragGestures(onDragEnd = {
+                val step = when { dragged < -60f -> 1; dragged > 60f -> -1; else -> 0 }
+                dragged = 0f
+                items.getOrNull(idx + step)?.takeIf { step != 0 }?.let(onSel)
+            }) { ch, d -> ch.consume(); dragged += d }
+        }) {
+        items.forEach { it ->
+            val on = it == sel
+            Box(Modifier.weight(1f).height(56.dp).tilt { onSel(it) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.align(Alignment.TopCenter).height(3.dp).fillMaxWidth(if (on) 0.6f else 0f).background(accent))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(it, color = if (it == sel) accent else Dim, fontSize = 17.sp)
+                    Text(it, color = if (on) White else Dim, fontSize = if (items.size > 4) 13.sp else 15.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
                     val b = badge(it)
-                    if (b > 0) Text("$b", color = White, fontSize = 11.sp, modifier = Modifier.padding(start = 5.dp).background(accent).padding(horizontal = 4.dp))
+                    if (b > 0) Text("$b", color = White, fontSize = 10.sp, modifier = Modifier.padding(start = 3.dp).background(accent).padding(horizontal = 3.dp))
                 }
-                Box(Modifier.padding(top = 3.dp).height(2.dp).width(if (it == sel) 24.dp else 0.dp).background(accent))
             }
         }
     }
@@ -787,13 +800,13 @@ fun ComicsPage(accent: Color) {
     LaunchedEffect(Unit) { updates = withContext(Dispatchers.IO) { Books.newChapters(ctx) } }
     val deep = BookBridge.deep.values.any { it }
     Column(Modifier.fillMaxSize()) {
-        AnimatedVisibility(!deep) {
-            Column {
-                SubPivot(listOf("library", "updates", "history", "browse", "more"), sub, accent, { if (it == "updates") updates else 0 }) { sub = it }
-                if (sub == "library") ContinueReading(accent, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp))
-            }
+        AnimatedVisibility(!deep && sub == "library") {
+            ContinueReading(accent, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp))
         }
         key(sub) { BookBridge.embed?.invoke(sub, Modifier.weight(1f).fillMaxWidth()) }
+        AnimatedVisibility(!deep) {
+            SubPivot(listOf("library", "updates", "history", "browse", "more"), sub, accent, { if (it == "updates") updates else 0 }) { sub = it }
+        }
     }
 }
 
@@ -802,8 +815,8 @@ fun ComicsPage(accent: Color) {
 fun MusicPage(accent: Color, content: @Composable (String) -> Unit) {
     var sec by rememberTab("music", "songs")
     Column(Modifier.fillMaxSize()) {
-        SubPivot(listOf("songs", "artists", "albums", "playlists"), sec, accent) { sec = it }
         Box(Modifier.weight(1f)) { content(sec) }
+        SubPivot(listOf("songs", "artists", "albums", "playlists"), sec, accent) { sec = it }
     }
 }
 
@@ -841,6 +854,7 @@ fun BooksPage(accent: Color) {
                 }
             }
         }
+        item { HomeForToday(vm, accent) }
         item { ContinueReading(accent, Modifier.padding(top = 14.dp)) }
         item { BackupBox(accent, Modifier.padding(top = 14.dp)) }
     }
@@ -1274,7 +1288,6 @@ private fun hrs(ms: Long): String = when {
 fun StatsPage(vm: MusicViewModel, accent: Color) {
     var sub by rememberTab("stats", "all")
     Column(Modifier.fillMaxSize()) {
-        SubPivot(listOf("all", "music", "videos", "comics", "book"), sub, accent) { sub = it }
         Box(Modifier.weight(1f)) {
             when (sub) {
                 "music" -> MusicStats(vm, accent)
@@ -1284,6 +1297,7 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
                 else -> AllStats(vm, accent)
             }
         }
+        SubPivot(listOf("all", "music", "videos", "comics", "book"), sub, accent) { sub = it }
     }
 }
 
@@ -2342,6 +2356,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
 
     // swipe anywhere (except the seek bar) to change song; the cover follows the finger
     val drag = remember { Animatable(0f) }
+    LaunchedEffect(item.mediaId) { drag.snapTo(0f) } // the new song's cover starts centred
     var exitId by remember { mutableStateOf<String?>(null) }
     var exitFrom by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
@@ -2378,9 +2393,16 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
             onDragEnd = {
                 val v = drag.value
                 if (abs(v) > threshold) {
-                    exitId = curId; exitFrom = v
-                    scope.launch { drag.snapTo(0f) }
-                    if (v < 0) nextFn() else prevFn()
+                    // carry the cover off the screen first, then change song (no snap back to the middle)
+                    val target = if (v < 0) -size.width.toFloat() else size.width.toFloat()
+                    val was = curId
+                    scope.launch {
+                        drag.animateTo(target, tween(170, easing = LinearEasing))
+                        exitId = was; exitFrom = target
+                        if (v < 0) nextFn() else prevFn()
+                        delay(900)
+                        if (curId == was) { exitId = null; drag.animateTo(0f, tween(300, easing = WpEase)) } // nothing to skip to
+                    }
                 } else scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) }
             },
             onDragCancel = { scope.launch { drag.animateTo(0f, tween(380, easing = WpEase)) } }
@@ -2393,7 +2415,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 (slideOutHorizontally(tween(480, easing = WpEase)) { -it * dir / 2 } + fadeOut(tween(440)))
         }, label = "cover") { (id, uri) ->
             Box(Modifier.fillMaxSize().graphicsLayer {
-                val x = when (id) { curId -> drag.value; exitId -> exitFrom; else -> 0f }
+                val x = when (id) { exitId -> exitFrom; curId -> drag.value; else -> 0f }
                 translationX = x * 0.85f
                 val sc = 1.05f + 0.07f * kb - abs(x) / w * 0.06f; scaleX = sc; scaleY = sc
                 alpha = 1f - abs(x) / w * 0.5f
@@ -2919,47 +2941,22 @@ fun <T> SlideText(value: T, dir: Int, content: @Composable (T) -> Unit) {
 
 
 
-/**
- * Top of home: shuffle everything, new comic chapters, and a random episode / book / comic for today.
- * Picks change once a day so the page doesn't jump around every time you open it.
- */
+/** Top of home: shuffle everything, and comics with new chapters. */
 @Composable
 private fun HomePicks(vm: MusicViewModel, conn: PlayerConnection, accent: Color, open: (Screen) -> Unit) {
     val ctx = LocalContext.current
     val songs = vm.songs.value
-    val videos = vm.videos.value
-    var reroll by remember { mutableIntStateOf(0) }
-    val seed = dayNo() * 31 + reroll
-    // a show you haven't finished: the first episode you haven't watched to the end
-    val episode = remember(videos, seed) {
-        val pos = ctx.getSharedPreferences("video_pos", Context.MODE_PRIVATE)
-        val shows = videos.filter { it.parsed.isEpisode }.groupBy { it.parsed.title.lowercase() }
-        val show = shows.keys.shuffled(kotlin.random.Random(seed)).firstOrNull() ?: return@remember null
-        val eps = VideoQueue.episodes(shows[show]!!.first()).ifEmpty { shows[show]!! }
-        val watched = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE).getStringSet("watched_eps", emptySet()) ?: emptySet()
-        eps.firstOrNull { pos.contains(it.id.toString()) } ?: eps.firstOrNull { it.id.toString() !in watched } ?: eps.first()
-    }
-    // comics come from the comics library; books from the book tab's reading list
     var lib by remember { mutableStateOf<List<Books.Lib>>(emptyList()) }
-    var books by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            lib = Books.library(ctx)
-            books = BookTime(ctx).top.map { it.first }
-        }
+        lib = withContext(Dispatchers.IO) { Books.library(ctx) }
         ComicWidget.refresh(ctx)
     }
-    val book = remember(books, seed) { books.shuffled(kotlin.random.Random(seed)).firstOrNull() }
-    val comic = remember(lib, seed) { lib.shuffled(kotlin.random.Random(seed + 7)).firstOrNull() }
     val updates = remember(lib) { lib.filter { it.unread > 0 } }
-
     Column(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("shuffle all", color = White, fontSize = 15.sp, modifier = Modifier.background(accent).tilt {
                 if (songs.isNotEmpty()) { conn.playSongs(songs, 0, shuffled = true); open(Screen.Playing) }
             }.padding(horizontal = 16.dp, vertical = 9.dp))
-            Text("new picks", color = White, fontSize = 15.sp, modifier = Modifier.border(1.dp, White).tilt { reroll++ }
-                .padding(horizontal = 14.dp, vertical = 8.dp))
         }
         if (updates.isNotEmpty()) {
             SectionLabel("new chapters", accent)
@@ -2976,38 +2973,71 @@ private fun HomePicks(vm: MusicViewModel, conn: PlayerConnection, accent: Color,
                 }
             }
         }
-        if (episode != null || book != null || comic != null) {
-            SectionLabel("for today", accent)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                episode?.let { v ->
-                    item(key = "ep") {
-                        Column(Modifier.width(180.dp).tilt { VideoActivity.open(ctx, v, VideoQueue.label(v)) }) {
-                            VideoThumb(v, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                            Text(v.parsed.title, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("watch S%02dE%02d".format(v.parsed.season ?: 0, v.parsed.episode ?: 0), color = Dim, fontSize = 12.sp)
+    }
+}
+
+/**
+ * Below speed dial: 6 random TV episodes (each from a different show, any season, any episode),
+ * plus a random comic and book. Picks change once a day, or with "new picks".
+ */
+@Composable
+private fun HomeForToday(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    val videos = vm.videos.value
+    var reroll by remember { mutableIntStateOf(0) }
+    val seed = dayNo() * 31 + reroll
+    val episodes = remember(videos, seed) {
+        val rnd = kotlin.random.Random(seed)
+        val watched = ctx.getSharedPreferences("grove", Context.MODE_PRIVATE).getStringSet("watched_eps", emptySet()) ?: emptySet()
+        val shows = videos.filter { it.parsed.isEpisode }.groupBy { it.parsed.title.lowercase() }.values.shuffled(rnd)
+        val picks = shows.take(6).map { eps -> (eps.filter { it.id.toString() !in watched }.ifEmpty { eps }).random(rnd) }.toMutableList()
+        // fewer than 6 shows: fill up with more random episodes
+        if (picks.size < 6) picks += videos.filter { it.parsed.isEpisode && it !in picks }.shuffled(rnd).take(6 - picks.size)
+        picks
+    }
+    var lib by remember { mutableStateOf<List<Books.Lib>>(emptyList()) }
+    var books by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { lib = Books.library(ctx); books = BookTime(ctx).top.map { it.first } }
+    }
+    val book = remember(books, seed) { books.shuffled(kotlin.random.Random(seed)).firstOrNull() }
+    val comic = remember(lib, seed) { lib.shuffled(kotlin.random.Random(seed + 7)).firstOrNull() }
+    if (episodes.isEmpty() && book == null && comic == null) return
+    Column(Modifier.padding(top = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { SectionLabel("for today", accent) }
+            Text("new picks", color = White, fontSize = 13.sp, modifier = Modifier.border(1.dp, White).tilt { reroll++ }
+                .padding(horizontal = 10.dp, vertical = 5.dp))
+        }
+        if (episodes.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(episodes, key = { it.id }) { v ->
+                Column(Modifier.width(170.dp).tilt { VideoActivity.open(ctx, v, VideoQueue.label(v)) }) {
+                    VideoThumb(v, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    Text(v.parsed.title, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("S%02dE%02d".format(v.parsed.season ?: 0, v.parsed.episode ?: 0), color = Dim, fontSize = 12.sp)
+                }
+            }
+        }
+        if (book != null || comic != null) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp)) {
+            comic?.let { f ->
+                item(key = "comic") {
+                    Column(Modifier.width(96.dp).tilt { Books.openBook(ctx, f.id) }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
+                            AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
                         }
+                        Text(f.title, color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("read a comic", color = Dim, fontSize = 11.sp)
                     }
                 }
-                comic?.let { f ->
-                    item(key = "comic") {
-                        Column(Modifier.width(96.dp).tilt { Books.openBook(ctx, f.id) }) {
-                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
-                                AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
-                            }
-                            Text(f.title, color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("read a comic", color = Dim, fontSize = 11.sp)
+            }
+            book?.let { b ->
+                item(key = "book") {
+                    Column(Modifier.width(96.dp).tilt { HomeNav.goto.value = "book" }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(lerp(accent, Color.Black, 0.5f)), contentAlignment = Alignment.Center) {
+                            Text(b.take(1).uppercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light)
                         }
-                    }
-                }
-                book?.let { b ->
-                    item(key = "book") {
-                        Column(Modifier.width(96.dp).tilt { HomeNav.goto.value = "book" }) {
-                            Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(lerp(accent, Color.Black, 0.5f)), contentAlignment = Alignment.Center) {
-                                Text(b.take(1).uppercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light)
-                            }
-                            Text(b, color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("read a book", color = Dim, fontSize = 11.sp)
-                        }
+                        Text(b, color = White, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("read a book", color = Dim, fontSize = 11.sp)
                     }
                 }
             }

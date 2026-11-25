@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -119,7 +120,6 @@ fun rememberRenamer(onDone: (Int) -> Unit): Pair<Renamer, (List<Pair<Video, Stri
 fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
     var sub by rememberTab("videos", "all")
     Column(Modifier.fillMaxSize()) {
-        SubPivot(listOf("all", "favourites", "hidden"), sub, accent, { if (it == "hidden") vm.hiddenItems.value.size else 0 }) { sub = it }
         Box(Modifier.weight(1f)) {
             when (sub) {
                 "favourites" -> FavVideos(vm, accent, open)
@@ -127,6 +127,7 @@ fun VideosPage(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
                 else -> AllVideos(vm, accent, open)
             }
         }
+        SubPivot(listOf("all", "favourites", "hidden"), sub, accent, { if (it == "hidden") vm.hiddenItems.value.size else 0 }) { sub = it }
     }
 }
 
@@ -220,8 +221,12 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
         all.forEach { v -> VideoMeta.movieFor(ctx, v)?.let { m[v.id] = it } ; if (m.size % 6 == 0) found = m.toMap() }
         found = m.toMap(); checked = true
     }
-    val movies = all.filter { it.id in found }
-    val others = all.filter { it.id !in found }
+    // music videos (MTV): their own row, never mixed into movies or YouTube videos
+    val artists = remember(vm.songs.value) { vm.songs.value.flatMap { ArtistRepository.split(it.artist) }.map { it.lowercase().trim() }.filter { it.length > 1 }.toHashSet() }
+    val mtv = remember(all, artists) { all.filter { isMusicVideo(it, artists) } }
+    val mtvIds = remember(mtv) { mtv.mapTo(HashSet()) { it.id } }
+    val movies = all.filter { it.id in found && it.id !in mtvIds }
+    val others = all.filter { it.id !in found && it.id !in mtvIds }
     val noKey = Prefs(ctx).tmdbKey.isBlank()
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
         if (videos.isEmpty()) item { Text("no videos found on your phone", color = D, fontSize = 16.sp) }
@@ -263,6 +268,25 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
                 repeat(3 - movies.chunked(3)[r].size) { Spacer(Modifier.weight(1f)) }
             }
         }
+        if (mtv.isNotEmpty()) item {
+            SectionLabel("mtv · ${mtv.size} music videos", accent, Modifier.padding(top = 14.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(mtv, key = { it.id }) { v ->
+                    val (artist, song) = mvNames(v)
+                    Column(Modifier.width(190.dp).tilt { open(Screen.VideoInfo(v.id)) }) {
+                        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                            VideoThumb(v, Modifier.matchParentSize())
+                            Text("MTV", color = W, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
+                                .background(accent).padding(horizontal = 4.dp, vertical = 1.dp))
+                            Text(fmtDur(v.duration), color = W, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
+                                .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 4.dp, vertical = 1.dp))
+                        }
+                        Text(song, color = W, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                        if (artist.isNotBlank()) Text(artist, color = D, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
         if (others.isNotEmpty()) item {
             SectionLabel(if (checked) "other videos · matched on YouTube where possible" else "other videos · checking…", accent, Modifier.padding(top = 14.dp))
         }
@@ -286,6 +310,26 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
             }
         }
     }
+}
+
+private val MV_WORDS = Regex("""(?i)(official\s*(music\s*)?video|music\s*video|\bm/?v\b|lyric\s*video|official\s*mv|\bvevo\b|live\s*performance|\bmtv\b)""")
+
+/** a music video: says so in its name or folder, or is "Artist - Song" by an artist in your music */
+fun isMusicVideo(v: Video, artists: Set<String>): Boolean {
+    if (v.parsed.isEpisode) return false
+    val name = v.name.substringBeforeLast('.')
+    if (MV_WORDS.containsMatchIn(name)) return true
+    val folder = v.folder.trimEnd('/').substringAfterLast('/').lowercase()
+    if (folder in setOf("mtv", "mv", "music video", "music videos", "musicvideos", "music_videos", "video klip", "klip")) return true
+    val a = name.substringBefore(" - ", "").lowercase().trim()
+    return a.isNotEmpty() && (a in artists || a.split(Regex("\\s*(,|&|\\sfeat\\.?\\s|\\sft\\.?\\s|\\sx\\s)\\s*")).any { it.trim() in artists })
+}
+
+/** "Artist - Song (Official Video)" → artist, song */
+fun mvNames(v: Video): Pair<String, String> {
+    val n = v.name.substringBeforeLast('.').replace('_', ' ')
+    val song = n.substringAfter(" - ", n).replace(Regex("""(?i)\s*[\[(][^\])]*(video|mv|m/v|audio|lyric|4k|hd|1080p)[^\])]*[\])]"""), "").trim()
+    return n.substringBefore(" - ", "").trim() to song.ifBlank { n }
 }
 
 private fun fmtDur(ms: Long): String { val m = ms / 60000; return if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" }
