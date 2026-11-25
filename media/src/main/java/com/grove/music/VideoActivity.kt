@@ -54,14 +54,19 @@ class VideoActivity : ComponentActivity() {
     /** hardware engine (ExoPlayer) for 4K / 8K — same screen and controls, only the decoder changes */
     private var exo: androidx.media3.exoplayer.ExoPlayer? = null
     private val hw = mutableStateOf(false)
+    // once the player is released (closing, or jumping to the next episode) nothing may touch VLC again:
+    // a late timer asking "is it playing?" crashed the app ("can't get VLCObject instance")
+    @Volatile private var dead = false
+    private val handler by lazy { android.os.Handler(mainLooper) }
+    private inline fun <T> vlc(def: T, f: () -> T): T = if (dead) def else runCatching(f).getOrDefault(def)
     private var pTime: Long
-        get() = exo?.currentPosition ?: player.time
-        set(v) { val e = exo; if (e != null) e.seekTo(v) else player.time = v }
-    private val pLen: Long get() = exo?.let { e -> e.duration.takeIf { it > 0 } ?: 0L } ?: player.length
-    private val pPlaying: Boolean get() = exo?.isPlaying ?: player.isPlaying
-    private fun pPlay() { val e = exo; if (e != null) e.play() else player.play() }
-    private fun pPause() { val e = exo; if (e != null) e.pause() else player.pause() }
-    private fun pStop() { val e = exo; if (e != null) e.stop() else player.stop() }
+        get() = vlc(0L) { exo?.currentPosition ?: player.time }
+        set(v) { vlc(Unit) { val e = exo; if (e != null) e.seekTo(v) else player.time = v } }
+    private val pLen: Long get() = vlc(0L) { exo?.let { e -> e.duration.takeIf { it > 0 } ?: 0L } ?: player.length }
+    private val pPlaying: Boolean get() = vlc(false) { exo?.isPlaying ?: player.isPlaying }
+    private fun pPlay() = vlc(Unit) { val e = exo; if (e != null) e.play() else player.play() }
+    private fun pPause() = vlc(Unit) { val e = exo; if (e != null) e.pause() else player.pause() }
+    private fun pStop() = vlc(Unit) { val e = exo; if (e != null) e.stop() else player.stop() }
     private var pfd: ParcelFileDescriptor? = null
     private var videoId = 0L
     private var vw = 16; private var vh = 9
@@ -82,7 +87,7 @@ class VideoActivity : ComponentActivity() {
         if (play) pPlay() else pPause()
         refresh()
         // once VLC has switched, go back to its real state
-        android.os.Handler(mainLooper).postDelayed({ if (pPlaying == play) { want = null }; refresh() }, 700)
+        handler.postDelayed({ if (pPlaying == play) { want = null }; refresh() }, 700)
     }
     fun skip(ms: Long) { pTime = (pTime + ms).coerceAtLeast(0); refresh() }
 
@@ -182,7 +187,7 @@ class VideoActivity : ComponentActivity() {
         }
         player.setEventListener { e ->
             if (e.type == MediaPlayer.Event.Vout) vouts = e.voutCount
-            if (e.type == MediaPlayer.Event.Playing && !retried) android.os.Handler(mainLooper).postDelayed({ blackCheck() }, 2500)
+            if (e.type == MediaPlayer.Event.Playing && !retried) handler.postDelayed({ blackCheck() }, 2500)
             if (e.type == MediaPlayer.Event.Playing || e.type == MediaPlayer.Event.Paused) refresh()
             if (e.type == MediaPlayer.Event.EndReached) { refresh(); playNextEpisode() }
         }
@@ -278,7 +283,7 @@ class VideoActivity : ComponentActivity() {
             p.edit().putStringSet("watched_eps", (p.getStringSet("watched_eps", emptySet()) ?: emptySet()) + videoId.toString()).apply()
         }
         val next = VideoQueue.next(videoId) ?: return
-        android.os.Handler(mainLooper).post {
+        handler.post {
             if (isFinishing) return@post
             // this episode is finished: don't resume it from the end next time
             getSharedPreferences("video_pos", MODE_PRIVATE).edit().remove(videoId.toString()).apply()
@@ -291,7 +296,7 @@ class VideoActivity : ComponentActivity() {
         val id = videoId; if (id == 0L || exo == null) return
         val t = exo?.currentPosition ?: 0
         exo?.release(); exo = null; hw.value = false
-        android.os.Handler(mainLooper).post {
+        handler.post {
             load(Intent().putExtra("id", id).putExtra("title", title.value).putExtra("w", vw).putExtra("h", vh).putExtra("hw", false))
             if (t > 1000) pTime = t
             android.widget.Toast.makeText(this, "playing with VLC (this file needs it)", android.widget.Toast.LENGTH_SHORT).show()
@@ -366,10 +371,12 @@ class VideoActivity : ComponentActivity() {
 
     override fun onDestroy() {
         savePos()
+        dead = true
+        handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(pipReceiver) }
         VideoService.stop(this); session?.release(); if (current === this) current = null
-        exo?.release(); exo = null
-        player.stop(); player.detachViews(); player.release(); lib.release(); pfd?.close()
+        runCatching { exo?.release() }; exo = null
+        runCatching { player.stop(); player.detachViews(); player.release(); lib.release() }; pfd?.close()
         super.onDestroy()
     }
 
