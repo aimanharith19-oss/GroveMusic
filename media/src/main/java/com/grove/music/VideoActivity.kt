@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -63,6 +65,7 @@ class VideoActivity : ComponentActivity() {
     private var handedOff = false
     /** this screen took over a player from the mini window */
     private var adopted = false
+    private var openJob: kotlinx.coroutines.Job? = null
     /** the file being played (for seek-bar frame previews) */
     private var src: Uri? = null
     private var preview: FramePreview? = null
@@ -270,7 +273,7 @@ class VideoActivity : ComponentActivity() {
             val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
             if (resume > 5000) exo!!.seekTo(resume)
             exo!!.prepare(); exo!!.play()
-            thumb = runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull()
+            lifecycleScope.launch { thumb = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull() } }
             return
         }
         exo?.let { it.release(); exo = null }; hw.value = false
@@ -299,19 +302,26 @@ class VideoActivity : ComponentActivity() {
         }
         val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
         src = uri; preview?.close(); preview = FramePreview(this, uri)
-        pfd?.close()
-        pfd = contentResolver.openFileDescriptor(uri, "r") ?: return
-        retried = false; vouts = 0
-        mk = { Media(lib, pfd!!.fileDescriptor).apply { setHWDecoderEnabled(true, false) } }
-        val m = mk!!()
-        player.media = m; m.release()
-        // pause the music player
-        @Suppress("DEPRECATION")
-        (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
-        pPlay()
-        thumb = runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull()
-        val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
-        if (resume > 5000) pTime = resume
+        val id = videoId
+        // opening the file asks Android's media storage, which can be slow: never on the main thread (it froze the app)
+        openJob?.cancel()
+        openJob = lifecycleScope.launch {
+            val fd = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { contentResolver.openFileDescriptor(uri, "r") }.getOrNull() } ?: return@launch
+            if (dead || id != videoId) { fd.close(); return@launch }
+            pfd?.close(); pfd = fd
+            retried = false; vouts = 0
+            mk = { Media(lib, pfd!!.fileDescriptor).apply { setHWDecoderEnabled(true, false) } }
+            val m = mk!!()
+            vlc(Unit) { player.media = m }; m.release()
+            // pause the music player
+            @Suppress("DEPRECATION")
+            (getSystemService(AUDIO_SERVICE) as AudioManager).requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            pPlay()
+            val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(id.toString(), 0)
+            if (resume > 5000) pTime = resume
+            thumb = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { contentResolver.loadThumbnail(uri, android.util.Size(512, 288), null) }.getOrNull() }
+            refresh()
+        }
     }
 
     private val title = mutableStateOf("")

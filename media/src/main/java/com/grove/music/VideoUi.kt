@@ -44,22 +44,25 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withPermit
 
 private val W = Color.White
 private val D = Color.White.copy(alpha = 0.55f)
+
+private val thumbGate = kotlinx.coroutines.sync.Semaphore(3)
 
 /** A frame from the video itself, for videos without a poster. */
 @Composable
 fun VideoThumb(v: Video, modifier: Modifier) {
     val ctx = LocalContext.current
     val bmp by produceState<Bitmap?>(null, v.id) {
-        value = withContext(Dispatchers.IO) {
+        value = withContext(Dispatchers.IO) { thumbGate.withPermit {
             runCatching {
                 if (v.id < 0) android.media.ThumbnailUtils.createVideoThumbnail(java.io.File(v.path ?: ""), Size(480, 270), null)
                 else if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(v.uri, Size(480, 270), null)
                 else @Suppress("DEPRECATION") android.media.ThumbnailUtils.createVideoThumbnail(v.path ?: "", MediaStore.Video.Thumbnails.MINI_KIND)
             }.getOrNull()
-        }
+        } }
     }
     Box(modifier.background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
         bmp?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()) }
