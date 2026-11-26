@@ -63,6 +63,8 @@ fun LibraryContent(
 ) {
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
+    val inPivot = eu.kanade.presentation.components.LocalInPivot.current
+    val peekCtx = androidx.compose.ui.platform.LocalContext.current
     var isRefreshing by remember { mutableStateOf(false) }
 
     val shown = if (searchQuery.isNullOrEmpty()) {
@@ -97,7 +99,32 @@ fun LibraryContent(
                             onClickManga(manga.id)
                         }
                     },
-                    onLongClick = { onToggleRangeSelection(category, item.libraryManga) },
+                    // inside GroveMedia: long press = small info card (selecting is one of its buttons)
+                    onLongClick = {
+                        if (inPivot && selection.isEmpty()) {
+                            val lm = item.libraryManga
+                            val status = when (manga.status) { 1L -> "ongoing"; 2L -> "completed"; 3L -> "licensed"; 4L -> "finished"; 5L -> "cancelled"; 6L -> "on hiatus"; else -> null }
+                            com.grove.music.Peek.show(com.grove.music.PeekData(
+                                kind = "COMIC", title = manga.title, sub = manga.author.orEmpty(),
+                                image = manga.thumbnailUrl, ratio = 0.7f,
+                                rows = listOfNotNull(
+                                    manga.author?.takeIf { it.isNotBlank() }?.let { "author" to it },
+                                    manga.artist?.takeIf { it.isNotBlank() && it != manga.author }?.let { "artist" to it },
+                                    manga.genre?.takeIf { it.isNotEmpty() }?.let { "genre" to it.take(4).joinToString(", ") },
+                                    status?.let { "status" to it },
+                                    ("chapters" to "${lm.readCount} of ${lm.totalChapters} read").takeIf { lm.totalChapters > 0 },
+                                    ("unread" to lm.unreadCount.toString()).takeIf { lm.unreadCount > 0 },
+                                ),
+                                more = { com.grove.music.PeekMore(about = manga.description?.takeIf { it.isNotBlank() }) },
+                                actions = listOf(
+                                    "open" to { onClickManga(manga.id) },
+                                    "select" to { onToggleSelection(category, lm) },
+                                ),
+                            ))
+                        } else {
+                            onToggleRangeSelection(category, item.libraryManga)
+                        }
+                    },
                 )
             },
         )

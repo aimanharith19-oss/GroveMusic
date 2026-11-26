@@ -130,6 +130,7 @@ data object OfflineTab : Tab {
         ) { padding ->
             @Suppress("UNUSED_VARIABLE")
             val refreshAfterMove = assignTick
+            val inPivotBooks = eu.kanade.presentation.components.LocalInPivot.current
             fun tile(book: OfflineBook) = RackBook(
                 key = book.uri.toString(),
                 title = titles[book.uri] ?: OfflineLibrary.cleanName(book.title),
@@ -138,7 +139,29 @@ data object OfflineTab : Tab {
                 onClick = {
                     context.startActivity(OfflineReaderActivity.newIntent(context, book.uri, titles[book.uri] ?: OfflineLibrary.cleanName(book.title)))
                 },
-                onLongClick = { moveAsk = book },
+                // inside GroveMedia: long press = small info card ("move to folder" is one of its buttons)
+                onLongClick = {
+                    if (inPivotBooks) {
+                        val name = titles[book.uri] ?: OfflineLibrary.cleanName(book.title)
+                        val sp = context.getSharedPreferences("grove_offline", android.content.Context.MODE_PRIVATE)
+                        val ms = (sp.all["time:${book.uri}"] as? Number)?.toLong() ?: 0L
+                        val pages = (sp.all["pages:${book.uri}"] as? Int) ?: 0
+                        com.grove.music.Peek.show(com.grove.music.PeekData(
+                            kind = "BOOK", title = name, sub = book.extension.uppercase(), image = covers[book.uri], ratio = 0.7f,
+                            rows = listOfNotNull(
+                                OfflineLibrary.progress(context, book.uri)?.let { "progress" to "$it%" },
+                                pages.takeIf { it > 0 }?.let { "pages" to it.toString() },
+                                ms.takeIf { it > 0 }?.let { "reading time" to (it / 60000).let { m -> if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" } },
+                            ),
+                            actions = listOf(
+                                "read" to { context.startActivity(OfflineReaderActivity.newIntent(context, book.uri, name)) },
+                                "move to folder" to { moveAsk = book },
+                            ),
+                        ))
+                    } else {
+                        moveAsk = book
+                    }
+                },
             )
             // The user's own folders first, then whatever is left by device folder
             val allBooks = shelves.orEmpty().flatMap { it.books }
