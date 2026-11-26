@@ -29,7 +29,11 @@ object CrashReport {
                 ApplicationExitInfo.REASON_CRASH -> "crash"
                 ApplicationExitInfo.REASON_CRASH_NATIVE -> "native crash"
                 ApplicationExitInfo.REASON_ANR -> "froze (not responding)"
-                ApplicationExitInfo.REASON_LOW_MEMORY -> "out of memory"
+                // Android closing GroveMedia in the background to free memory for other apps is normal, not a crash:
+                // only worth a report if it happened while you were using it
+                ApplicationExitInfo.REASON_LOW_MEMORY ->
+                    if (x.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND)
+                        "closed by Android while in use (phone low on memory, app used ${x.pss / 1024} MB)" else null
                 ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "used too many resources"
                 ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "failed to start"
                 else -> null
