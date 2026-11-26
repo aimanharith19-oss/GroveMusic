@@ -20,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.delay
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
@@ -57,6 +59,23 @@ class VideoActivity : ComponentActivity() {
     // once the player is released (closing, or jumping to the next episode) nothing may touch VLC again:
     // a late timer asking "is it playing?" crashed the app ("can't get VLCObject instance")
     @Volatile private var dead = false
+    /** the player was handed to the mini window: don't release it when this screen closes */
+    private var handedOff = false
+    /** the file being played (for seek-bar frame previews) */
+    private var src: Uri? = null
+    private var preview: FramePreview? = null
+    private val exoListener = object : androidx.media3.common.Player.Listener {
+                            override fun onIsPlayingChanged(isPlaying: Boolean) { refresh() }
+                            override fun onPlaybackStateChanged(state: Int) {
+                                if (state == androidx.media3.common.Player.STATE_ENDED) playNextEpisode()
+                            }
+                            // the hardware engine can't play this file (e.g. DTS / TrueHD audio, odd codec) → VLC takes over
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { fallbackToVlc() }
+                            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                                val audio = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
+                                if (audio.isNotEmpty() && audio.none { g -> (0 until g.length).any { g.isTrackSupported(it) } }) fallbackToVlc()
+                            }
+    }
     private val handler by lazy { android.os.Handler(mainLooper) }
     private inline fun <T> vlc(def: T, f: () -> T): T = if (dead) def else runCatching(f).getOrDefault(def)
     private var pTime: Long
@@ -172,8 +191,15 @@ class VideoActivity : ComponentActivity() {
         }
         current = this
         // let VLC drop late frames: forcing every frame made 4K 60fps fall behind and show a black picture
-        lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--codec=mediacodec_ndk,mediacodec_jni,all"))
-        player = MediaPlayer(lib)
+        val mini = if (intent.getBooleanExtra("fromMini", false)) VideoMini.take() else null
+        if (mini != null) {
+            lib = mini.lib; player = mini.vlc; exo = mini.exo; pfd = mini.pfd
+            exo?.addListener(exoListener)
+        } else {
+            VideoMini.release(this) // a new video replaces whatever was in the mini window
+            lib = LibVLC(this, arrayListOf("--audio-time-stretch", "--codec=mediacodec_ndk,mediacodec_jni,all"))
+            player = MediaPlayer(lib)
+        }
         session = android.media.session.MediaSession(this, "GroveVideo").apply {
             setCallback(object : android.media.session.MediaSession.Callback() {
                 override fun onPlay() { if (!playingNow()) toggle() }
@@ -193,12 +219,33 @@ class VideoActivity : ComponentActivity() {
         }
         val f = android.content.IntentFilter().apply { addAction(VideoService.ACT_TOGGLE); addAction(ACT_AUDIO) }
         registerReceiver(pipReceiver, f, RECEIVER_NOT_EXPORTED)
-        load(intent)
+        if (mini != null) {
+            videoId = mini.videoId; title.value = mini.title; vw = mini.w; vh = mini.h; hw.value = mini.exo != null
+            src = mini.src; src?.let { preview = FramePreview(this, it) }
+            refresh()
+        } else load(intent)
         setContent { Screen() }
         pipParams(true)
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); load(intent) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra("fromMini", false)) return
+        VideoMini.release(this); load(intent)
+    }
+
+    /** swipe down: keep playing in GroveMedia's mini window (like YouTube) */
+    private fun toMini() {
+        savePos()
+        exo?.removeListener(exoListener)
+        runCatching { player.detachViews() }
+        VideoMini.hold(VideoMini.Held(lib, player, exo, title.value, videoId, src, vw, vh, pfd))
+        pfd = null
+        handedOff = true
+        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        finish()
+        @Suppress("DEPRECATION") overridePendingTransition(0, android.R.anim.fade_out)
+    }
 
     private fun load(i: Intent) {
         savePos()
@@ -211,24 +258,12 @@ class VideoActivity : ComponentActivity() {
                 exo = androidx.media3.exoplayer.ExoPlayer.Builder(this, androidx.media3.exoplayer.DefaultRenderersFactory(this).setEnableDecoderFallback(true))
                     .setAudioAttributes(androidx.media3.common.AudioAttributes.Builder().setUsage(androidx.media3.common.C.USAGE_MEDIA)
                         .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
-                    .setHandleAudioBecomingNoisy(true).build().also { e ->
-                        e.addListener(object : androidx.media3.common.Player.Listener {
-                            override fun onIsPlayingChanged(isPlaying: Boolean) { refresh() }
-                            override fun onPlaybackStateChanged(state: Int) {
-                                if (state == androidx.media3.common.Player.STATE_ENDED) playNextEpisode()
-                            }
-                            // the hardware engine can't play this file (e.g. DTS / TrueHD audio, odd codec) → VLC takes over
-                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) { fallbackToVlc() }
-                            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                                val audio = tracks.groups.filter { it.type == androidx.media3.common.C.TRACK_TYPE_AUDIO }
-                                if (audio.isNotEmpty() && audio.none { g -> (0 until g.length).any { g.isTrackSupported(it) } }) fallbackToVlc()
-                            }
-                        })
-                    }
+                    .setHandleAudioBecomingNoisy(true).build().also { e -> e.addListener(exoListener) }
             }
             hw.value = true
             val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
             exo!!.setMediaItem(androidx.media3.common.MediaItem.fromUri(uri))
+            src = uri; preview?.close(); preview = FramePreview(this, uri)
             val resume = getSharedPreferences("video_pos", MODE_PRIVATE).getLong(videoId.toString(), 0)
             if (resume > 5000) exo!!.seekTo(resume)
             exo!!.prepare(); exo!!.play()
@@ -239,6 +274,7 @@ class VideoActivity : ComponentActivity() {
         // opened from a file manager / another app
         if (i.action == Intent.ACTION_VIEW && i.data != null) {
             val u = i.data!!
+            src = u; preview?.close(); preview = FramePreview(this, u)
             title.value = runCatching { contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } }.getOrNull()?.substringBeforeLast('.') ?: (u.lastPathSegment ?: "video")
             if (u.scheme == "content") { pfd?.close(); pfd = contentResolver.openFileDescriptor(u, "r") ?: return }
@@ -259,6 +295,7 @@ class VideoActivity : ComponentActivity() {
             return
         }
         val uri = android.content.ContentUris.withAppendedId(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId)
+        src = uri; preview?.close(); preview = FramePreview(this, uri)
         pfd?.close()
         pfd = contentResolver.openFileDescriptor(uri, "r") ?: return
         retried = false; vouts = 0
@@ -370,13 +407,16 @@ class VideoActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        savePos()
+        if (!handedOff) savePos()
         dead = true
         handler.removeCallbacksAndMessages(null)
         runCatching { unregisterReceiver(pipReceiver) }
         VideoService.stop(this); session?.release(); if (current === this) current = null
-        runCatching { exo?.release() }; exo = null
-        runCatching { player.stop(); player.detachViews(); player.release(); lib.release() }; pfd?.close()
+        preview?.close()
+        if (!handedOff) { // (when handed off, the mini window owns the player now)
+            runCatching { exo?.release() }; exo = null
+            runCatching { player.stop(); player.detachViews(); player.release(); lib.release() }; pfd?.close()
+        }
         super.onDestroy()
     }
 
@@ -390,17 +430,42 @@ class VideoActivity : ComponentActivity() {
         var fill by remember { mutableStateOf(false) }
         val pip by inPip
         LaunchedEffect(Unit) { while (true) { pos = pTime; len = pLen; playing = pPlaying; if (playing) watched += 250; delay(250) } }
-        LaunchedEffect(show, playing) { if (show && playing) { delay(3500); show = false } }
+        // scrubbing: by sliding sideways in the middle of the picture, or along the bar (with a frame preview)
+        var scrub by remember { mutableStateOf<Long?>(null) }
+        var scrubFrac by remember { mutableFloatStateOf(0.5f) }
+        var fromBar by remember { mutableStateOf(false) }
+        var scrubStart by remember { mutableLongStateOf(0L) }
+        var frame by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+        LaunchedEffect(scrub?.div(2000)) {
+            val t = scrub ?: run { frame = null; return@LaunchedEffect }
+            delay(30)
+            preview?.let { p -> frame = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { p.at(t) } ?: frame }
+        }
+        LaunchedEffect(show, playing, scrub) { if (show && playing && scrub == null) { delay(3500); show = false } }
         val swipeMini = remember { Prefs(this@VideoActivity).swipeMini }
         var downY by remember { mutableFloatStateOf(0f) }
         Box(Modifier.fillMaxSize().background(Color.Black).graphicsLayer {
             translationY = downY; val f = (downY / size.height).coerceIn(0f, 1f); scaleX = 1f - f * 0.3f; scaleY = 1f - f * 0.3f
         }.pointerInput(swipeMini) {
             if (!swipeMini) return@pointerInput
-            // swipe down = mini player (picture-in-picture over GroveMedia), like YouTube
+            // swipe down = GroveMedia's own mini player, like YouTube
             detectVerticalDragGestures(onDragEnd = {
-                if (downY > size.height * 0.18f) { downY = 0f; enterPip() } else downY = 0f
+                if (downY > size.height * 0.18f) { downY = 0f; toMini() } else downY = 0f
             }, onDragCancel = { downY = 0f }) { ch, d -> ch.consume(); downY = (downY + d).coerceAtLeast(0f) }
+        }.pointerInput(Unit) {
+            // slide sideways across the picture to seek (full width ≈ 2 minutes, or the whole video if shorter)
+            var acc = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { acc = 0f; scrubStart = pTime; fromBar = false; scrub = scrubStart; show = true },
+                onDragEnd = { scrub?.let { pTime = it }; scrub = null },
+                onDragCancel = { scrub = null },
+            ) { ch, d ->
+                ch.consume(); acc += d
+                val len = pLen
+                val span = if (len in 1..120_000) len else 120_000L
+                val t = (scrubStart + (acc / size.width * span).toLong()).let { if (len > 0) it.coerceIn(0, len) else it.coerceAtLeast(0) }
+                scrub = t; scrubFrac = if (len > 0) t.toFloat() / len else 0.5f
+            }
         }.pointerInput(Unit) {
             detectTapGestures(onTap = { show = !show }, onDoubleTap = { o ->
                 pTime = (pTime + if (o.x > size.width / 2) 10_000 else -10_000).coerceAtLeast(0)
@@ -438,6 +503,18 @@ class VideoActivity : ComponentActivity() {
             val accent = Color(Prefs(this@VideoActivity).accent)
             val posS = remember { mutableLongStateOf(0L) }; val durS = remember { mutableLongStateOf(0L) }
             LaunchedEffect(pos, len) { posS.longValue = pos; durS.longValue = len }
+            // sliding across the middle: big preview frame with how far you've moved
+            scrub?.takeIf { !fromBar }?.let { sc ->
+                Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = 0.55f), androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                    .padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    frame?.let { androidx.compose.foundation.Image(it.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.width(220.dp).height(124.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))) }
+                    val dlt = sc - scrubStart
+                    Text((if (dlt >= 0) "+" else "−") + t(kotlin.math.abs(dlt)), color = Color.White, fontSize = 22.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+                    Text("${t(sc)} / ${t(pLen)}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                }
+            }
             AnimatedVisibility(show && !pip, enter = fadeIn(), exit = fadeOut()) {
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = 0.75f), 0.3f to Color.Transparent, 0.62f to Color.Transparent,
@@ -455,7 +532,21 @@ class VideoActivity : ComponentActivity() {
                     }
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
                         .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                        SeekBar(posS, durS, accent) { pTime = it }
+                        // frame preview above the bar while dragging it
+                        if (scrub != null && fromBar) Box(Modifier.fillMaxWidth().height(120.dp)) {
+                            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                                val w = 176.dp
+                                val x = (maxWidth * scrubFrac - w / 2).coerceIn(0.dp, maxWidth - w)
+                                Column(Modifier.padding(start = x).width(w), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Box(Modifier.width(w).height(99.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                                        .border(2.dp, Color.White, androidx.compose.foundation.shape.RoundedCornerShape(6.dp)).background(Color.Black)) {
+                                        frame?.let { androidx.compose.foundation.Image(it.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+                                    }
+                                    Text(t(scrub!!), color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                        SeekBar(posS, durS, accent, onDrag = { ms, f -> scrub = ms; scrubFrac = f; fromBar = ms != null }) { pTime = it }
                         TimeRow(posS, durS)
                         Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen, 44, outline = false) { fill = !fill }

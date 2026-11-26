@@ -159,7 +159,7 @@ private fun FavVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
                 favs.chunked(2)[r].forEach { (k, v) ->
                     val show = k.startsWith("show:")
                     VideoCard(v, if (show) "tv show" else fmtDur(v.duration), Modifier.weight(1f)
-                        .tilt { if (show) open(Screen.Show(v.parsed.title)) else open(Screen.VideoInfo(v.id)) }) {
+                        .tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { if (show) open(Screen.Show(v.parsed.title)) else open(Screen.VideoInfo(v.id)) }) {
                         Icon(Icons.Rounded.Favorite, null, tint = Color(0xFFFF4D6D), modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp))
                     }
                 }
@@ -256,7 +256,7 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 movies.chunked(3)[r].forEach { v ->
                     val t = found[v.id]
-                    Column(Modifier.weight(1f).tilt { open(Screen.VideoInfo(v.id)) }) {
+                    Column(Modifier.weight(1f).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
                             if (t?.poster != null) AsyncImage(t!!.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
                             else VideoThumb(v, Modifier.matchParentSize())
@@ -273,7 +273,7 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(mtv, key = { it.id }) { v ->
                     val (artist, song) = mvNames(v)
-                    Column(Modifier.width(190.dp).tilt { open(Screen.VideoInfo(v.id)) }) {
+                    Column(Modifier.width(190.dp).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                             VideoThumb(v, Modifier.matchParentSize())
                             Text("MTV", color = W, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
@@ -294,7 +294,7 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 10.dp)) {
                 others.chunked(2)[r].forEach { v ->
                     val yt by produceState<YtInfo?>(null, v.id) { value = VideoMeta.youtube(ctx, v.parsed.title) }
-                    Column(Modifier.weight(1f).tilt { open(Screen.VideoInfo(v.id)) }) {
+                    Column(Modifier.weight(1f).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                             VideoThumb(v, Modifier.matchParentSize())
                             if (yt != null) Text("YouTube", color = W, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
@@ -581,7 +581,7 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
                         modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         itemsIndexed(row) { _, (e, v) ->
-                            Column(Modifier.width(220.dp).graphicsLayer { alpha = if (v != null) 1f else 0.45f }.tilt {
+                            Column(Modifier.width(220.dp).graphicsLayer { alpha = if (v != null) 1f else 0.45f }.tilt(onLongClick = v?.let { vv -> { Peek.video(ctx, vv) { VideoActivity.open(ctx, vv, VideoQueue.label(vv)) } } }) {
                                 if (v != null) VideoActivity.open(ctx, v, "${t?.name ?: name} · S${e.season}E${e.number}${if (e.name.isNotBlank()) " · ${e.name}" else ""}")
                             }) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {

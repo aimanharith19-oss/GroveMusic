@@ -264,6 +264,11 @@ fun GroveApp(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs) {
                 enter = slideInVertically(tween(380, easing = WpEase)) { it }, exit = slideOutVertically(tween(260, easing = WpEase)) { it }) {
                 AddToPlaylistSheet(vm, addTarget ?: emptyList(), accent) { addTarget = null }
             }
+            // YouTube-style mini video window (after swiping the video player down)
+            VideoMiniOverlay(accent, Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 132.dp).navigationBarsPadding())
+            // long-press peek card (songs, videos, comics, books)
+            BackHandler(Peek.shown.value != null) { Peek.shown.value = null }
+            PeekOverlay(accent)
         }
         }
     }
@@ -695,7 +700,7 @@ fun ContinueReading(accent: Color, modifier: Modifier = Modifier) {
         SectionLabel("continue reading", accent)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             itemsIndexed(list) { _, b ->
-                Column(Modifier.width(100.dp).tilt(onLongClick = { Books.openBook(ctx, b.mangaId) }) { Books.openReader(ctx, b) }) {
+                Column(Modifier.width(100.dp).tilt(onLongClick = { Peek.comic(ctx, b) }) { Books.openReader(ctx, b) }) {
                     Box(Modifier.width(100.dp).height(150.dp).background(lerp(accent, Color.Black, 0.4f))) {
                         Icon(Icons.AutoMirrored.Rounded.MenuBook, null, tint = White.copy(alpha = 0.5f), modifier = Modifier.align(Alignment.Center))
                         if (b.cover != null) AsyncImage(b.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
@@ -958,7 +963,13 @@ fun LetterTile(c: Char, accent: Color) {
 @Composable
 fun SongRow(title: String, sub: String, songId: Long? = null, art: Uri? = null, accent: Color? = null, onClick: () -> Unit) {
     val add = LocalAddToPlaylist.current
-    Row(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { { add(listOf(it)) } }, onClick = onClick).padding(vertical = 7.dp),
+    val vm = LocalVm.current
+    val ctx = LocalContext.current
+    // long press: peek at the song's details (add to playlist is one of the card's buttons)
+    Row(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { id -> {
+        val s = vm?.songs?.value?.firstOrNull { it.id == id }
+        if (s != null) Peek.song(ctx, s, null, add) else add(listOf(id))
+    } }, onClick = onClick).padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (accent != null) Art(art, lerp(accent, Color.Black, 0.4f), Modifier.size(46.dp).padding(end = 0.dp))
         Column(Modifier.padding(start = if (accent != null) 12.dp else 0.dp)) {
@@ -2495,7 +2506,7 @@ fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, a
                 }
             }
             Spacer(Modifier.height(4.dp))
-            SeekBar(posS, durS, accent, conn::seekTo)
+            SeekBar(posS, durS, accent, onSeek = conn::seekTo)
             TimeRow(posS, durS)
             // output info + A-B loop
             var la by remember(md.title) { mutableStateOf<Long?>(null) }
@@ -2731,17 +2742,21 @@ fun LyricsView(lyrics: Lyrics?, loading: Boolean, pos: () -> Long, accent: Color
 }
 
 @Composable
-fun SeekBar(posS: State<Long>, durS: State<Long>, accent: Color, onSeek: (Long) -> Unit) {
+fun SeekBar(posS: State<Long>, durS: State<Long>, accent: Color, onDrag: ((Long?, Float) -> Unit)? = null, onSeek: (Long) -> Unit) {
     var drag by remember { mutableStateOf<Float?>(null) }
     val seek by rememberUpdatedState(onSeek)
+    val dragCb by rememberUpdatedState(onDrag)
     val d by durS
     Canvas(Modifier.fillMaxWidth().height(26.dp)
         .pointerInput(Unit) { detectTapGestures { o -> if (d > 0) seek((o.x / size.width * d).toLong()) } }
         .pointerInput(Unit) {
             detectHorizontalDragGestures(
-                onDragEnd = { drag?.let { if (d > 0) seek((it * d).toLong()) }; drag = null },
-                onDragCancel = { drag = null }
-            ) { ch, _ -> drag = (ch.position.x / size.width).coerceIn(0f, 1f) }
+                onDragEnd = { drag?.let { if (d > 0) seek((it * d).toLong()) }; drag = null; dragCb?.invoke(null, 0f) },
+                onDragCancel = { drag = null; dragCb?.invoke(null, 0f) }
+            ) { ch, _ ->
+                val f = (ch.position.x / size.width).coerceIn(0f, 1f)
+                drag = f; if (d > 0) dragCb?.invoke((f * d).toLong(), f)
+            }
         }) {
         val pos = posS.value; val dur = durS.value
         val frac = drag ?: if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
@@ -2962,7 +2977,7 @@ private fun HomePicks(vm: MusicViewModel, conn: PlayerConnection, accent: Color,
             SectionLabel("new chapters", accent)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(updates, key = { it.id }) { f ->
-                    Column(Modifier.width(96.dp).tilt { Books.openBook(ctx, f.id) }) {
+                    Column(Modifier.width(96.dp).tilt(onLongClick = { Peek.comic(ctx, f) }) { Books.openBook(ctx, f.id) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
                             AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
                             Text("${f.unread} new", color = White, fontSize = 11.sp,
@@ -3011,7 +3026,7 @@ private fun HomeForToday(vm: MusicViewModel, accent: Color) {
         }
         if (episodes.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(episodes, key = { it.id }) { v ->
-                Column(Modifier.width(170.dp).tilt { VideoActivity.open(ctx, v, VideoQueue.label(v)) }) {
+                Column(Modifier.width(170.dp).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, VideoQueue.label(v)) } }) { VideoActivity.open(ctx, v, VideoQueue.label(v)) }) {
                     VideoThumb(v, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
                     Text(v.parsed.title, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("S%02dE%02d".format(v.parsed.season ?: 0, v.parsed.episode ?: 0), color = Dim, fontSize = 12.sp)
@@ -3021,7 +3036,7 @@ private fun HomeForToday(vm: MusicViewModel, accent: Color) {
         if (book != null || comic != null) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp)) {
             comic?.let { f ->
                 item(key = "comic") {
-                    Column(Modifier.width(96.dp).tilt { Books.openBook(ctx, f.id) }) {
+                    Column(Modifier.width(96.dp).tilt(onLongClick = { Peek.comic(ctx, f) }) { Books.openBook(ctx, f.id) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(Color(0xFF1A1A1A))) {
                             AsyncImage(f.cover, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
                         }
@@ -3032,7 +3047,7 @@ private fun HomeForToday(vm: MusicViewModel, accent: Color) {
             }
             book?.let { b ->
                 item(key = "book") {
-                    Column(Modifier.width(96.dp).tilt { HomeNav.goto.value = "book" }) {
+                    Column(Modifier.width(96.dp).tilt(onLongClick = { Peek.book(ctx, b) }) { HomeNav.goto.value = "book" }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(0.7f).background(lerp(accent, Color.Black, 0.5f)), contentAlignment = Alignment.Center) {
                             Text(b.take(1).uppercase(), color = White, fontSize = 30.sp, fontWeight = FontWeight.Light)
                         }
