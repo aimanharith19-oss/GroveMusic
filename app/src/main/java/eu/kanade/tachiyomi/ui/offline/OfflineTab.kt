@@ -153,6 +153,7 @@ data object OfflineTab : Tab {
                                 pages.takeIf { it > 0 }?.let { "pages" to it.toString() },
                                 ms.takeIf { it > 0 }?.let { "reading time" to (it / 60000).let { m -> if (m >= 60) "${m / 60}h ${m % 60}m" else "${m}m" } },
                             ),
+                            more = { com.grove.music.BookInfo.peek(context, name) },
                             actions = listOf(
                                 "read" to { context.startActivity(OfflineReaderActivity.newIntent(context, book.uri, name)) },
                                 "move to folder" to { moveAsk = book },

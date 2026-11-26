@@ -169,6 +169,7 @@ object Peek {
                 t?.second?.let { "reading time" to hm(it) },
                 t?.third?.let { "progress" to "$it%" },
             ),
+            more = { BookInfo.peek(ctx, name) },
             actions = listOf("open book tab" to { HomeNav.goto.value = "book" }),
         ))
     }
