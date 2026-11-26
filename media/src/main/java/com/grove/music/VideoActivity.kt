@@ -472,15 +472,28 @@ class VideoActivity : ComponentActivity() {
         val portrait = androidx.compose.ui.platform.LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
         val eps = remember(title.value) { VideoQueue.all.firstOrNull { it.id == videoId }?.let { VideoQueue.episodes(it) } ?: emptyList() }
         val split = portrait && eps.size > 1 && !pip
-        Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Box((if (split) Modifier.fillMaxWidth().statusBarsPadding().aspectRatio(16f / 9f) else Modifier.fillMaxSize()).background(Color.Black).graphicsLayer {
-            translationY = downY; val f = (downY / size.height).coerceIn(0f, 1f); scaleX = 1f - f * 0.3f; scaleY = 1f - f * 0.3f
-        }.pointerInput(swipeMini) {
+        // old YouTube app: the whole player (video + episode list) slides down together, the video shrinks
+        // towards the bottom-right corner and the list fades, then it docks as the mini player
+        val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * androidx.compose.ui.platform.LocalDensity.current.density
+        val f = (downY / screenH).coerceIn(0f, 1f)
+        val scope = rememberCoroutineScope()
+        Column(Modifier.fillMaxSize().pointerInput(swipeMini) {
             if (!swipeMini) return@pointerInput
-            // swipe down = GroveMedia's own mini player, like YouTube
+            // swipe down = GroveMedia's own mini player, like YouTube. Measured here, outside the moving layer,
+            // so the drag follows your finger; a scroll in the episode list wins over it.
             detectVerticalDragGestures(onDragEnd = {
-                if (downY > size.height * 0.18f) { downY = 0f; toMini() } else downY = 0f
+                val go = downY > screenH * 0.15f
+                scope.launch {
+                    androidx.compose.animation.core.animate(downY, if (go) screenH * 0.7f else 0f,
+                        animationSpec = androidx.compose.animation.core.tween(if (go) 160 else 220)) { v, _ -> downY = v }
+                    if (go) { toMini() } else downY = 0f
+                }
             }, onDragCancel = { downY = 0f }) { ch, d -> ch.consume(); downY = (downY + d).coerceAtLeast(0f) }
+        }.graphicsLayer { translationY = downY }.background(Color.Black.copy(alpha = 1f - f * 0.9f))) {
+        Box((if (split) Modifier.fillMaxWidth().statusBarsPadding().aspectRatio(16f / 9f) else Modifier.fillMaxSize()).background(Color.Black).graphicsLayer {
+            val sc = 1f - f * 0.55f
+            scaleX = sc; scaleY = sc
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
         }.pointerInput(Unit) {
             // slide sideways across the picture to seek (full width ≈ 2 minutes, or the whole video if shorter)
             var acc = 0f
@@ -605,7 +618,7 @@ class VideoActivity : ComponentActivity() {
                 }
             }
         }
-        if (split) EpisodeList(eps, Color(Prefs(this@VideoActivity).accent), Modifier.weight(1f))
+        if (split) EpisodeList(eps, Color(Prefs(this@VideoActivity).accent), Modifier.weight(1f).graphicsLayer { alpha = (1f - f * 2.2f).coerceIn(0f, 1f) })
         }
     }
 
