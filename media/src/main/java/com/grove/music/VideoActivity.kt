@@ -61,6 +61,8 @@ class VideoActivity : ComponentActivity() {
     @Volatile private var dead = false
     /** the player was handed to the mini window: don't release it when this screen closes */
     private var handedOff = false
+    /** this screen took over a player from the mini window */
+    private var adopted = false
     /** the file being played (for seek-bar frame previews) */
     private var src: Uri? = null
     private var preview: FramePreview? = null
@@ -193,6 +195,7 @@ class VideoActivity : ComponentActivity() {
         // let VLC drop late frames: forcing every frame made 4K 60fps fall behind and show a black picture
         val mini = if (intent.getBooleanExtra("fromMini", false)) VideoMini.take() else null
         if (mini != null) {
+            adopted = true
             lib = mini.lib; player = mini.vlc; exo = mini.exo; pfd = mini.pfd
             exo?.addListener(exoListener)
         } else {
@@ -444,7 +447,11 @@ class VideoActivity : ComponentActivity() {
         LaunchedEffect(show, playing, scrub) { if (show && playing && scrub == null) { delay(3500); show = false } }
         val swipeMini = remember { Prefs(this@VideoActivity).swipeMini }
         var downY by remember { mutableFloatStateOf(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black).graphicsLayer {
+        val portrait = androidx.compose.ui.platform.LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+        val eps = remember(title.value) { VideoQueue.all.firstOrNull { it.id == videoId }?.let { VideoQueue.episodes(it) } ?: emptyList() }
+        val split = portrait && eps.size > 1 && !pip
+        Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Box((if (split) Modifier.fillMaxWidth().statusBarsPadding().aspectRatio(16f / 9f) else Modifier.fillMaxSize()).background(Color.Black).graphicsLayer {
             translationY = downY; val f = (downY / size.height).coerceIn(0f, 1f); scaleX = 1f - f * 0.3f; scaleY = 1f - f * 0.3f
         }.pointerInput(swipeMini) {
             if (!swipeMini) return@pointerInput
@@ -475,7 +482,11 @@ class VideoActivity : ComponentActivity() {
             if (hw.value) AndroidView({ c -> androidx.media3.ui.PlayerView(c).also { v ->
                     v.useController = false; v.player = exo; v.setBackgroundColor(android.graphics.Color.BLACK); exoView = v } },
                 Modifier.fillMaxSize(), update = { v -> v.player = exo })
-            else AndroidView({ c -> VLCVideoLayout(c).also { player.attachViews(it, null, true, false) } }, Modifier.fillMaxSize())
+            else AndroidView({ c -> VLCVideoLayout(c).also { l ->
+                    player.attachViews(l, null, true, false)
+                    // the picture was drawn somewhere else (mini window): make VLC draw it here again
+                    if (adopted) handler.postDelayed({ vlc(Unit) { player.setVideoTrackEnabled(false); player.setVideoTrackEnabled(true) } }, 250)
+                } }, Modifier.fillMaxSize())
             // pinch out = zoom to fill the screen, pinch in = whole picture (like the YouTube app)
             var zoomMsg by remember { mutableStateOf<String?>(null) }
             Box(Modifier.fillMaxSize().pointerInput(Unit) {
@@ -564,6 +575,45 @@ class VideoActivity : ComponentActivity() {
                                 Btn(Icons.Rounded.Headphones, 44, outline = false) { goAudioOnly() }
                                 Btn(Icons.Rounded.PictureInPictureAlt, 44, outline = false) { enterPip() }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        if (split) EpisodeList(eps, Color(Prefs(this@VideoActivity).accent), Modifier.weight(1f))
+        }
+    }
+
+    /** the show's other episodes under the video (portrait only), like YouTube's "up next" */
+    @Composable
+    private fun EpisodeList(eps: List<Video>, accent: Color, modifier: Modifier) {
+        val cur = eps.indexOfFirst { it.id == videoId }.coerceAtLeast(0)
+        val state = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (cur - 1).coerceAtLeast(0))
+        LaunchedEffect(cur) { state.animateScrollToItem((cur - 1).coerceAtLeast(0)) }
+        val watched = remember { getSharedPreferences("grove", MODE_PRIVATE).getStringSet("watched_eps", emptySet()) ?: emptySet() }
+        Column(modifier.fillMaxWidth().navigationBarsPadding()) {
+            Text(eps[cur].parsed.title.lowercase(), color = Color.White, fontSize = 24.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
+            Text("${eps.size} episodes · the next one plays by itself", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp,
+                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp))
+            androidx.compose.foundation.lazy.LazyColumn(state = state, modifier = Modifier.fillMaxSize()) {
+                items(eps.size) { i ->
+                    val e = eps[i]
+                    val now = e.id == videoId
+                    Row(Modifier.fillMaxWidth().background(if (now) accent.copy(alpha = 0.25f) else Color.Transparent)
+                        .pointerInput(e.id) { detectTapGestures { if (!now) open(this@VideoActivity, e, VideoQueue.label(e)) } }
+                        .padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))) {
+                            VideoThumb(e, Modifier.fillMaxSize())
+                            if (now) Text("playing", color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomStart)
+                                .background(accent).padding(horizontal = 4.dp, vertical = 1.dp))
+                        }
+                        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                            Text("S%02d · E%02d".format(e.parsed.season ?: 0, e.parsed.episode ?: 0), color = if (now) accent else Color.White,
+                                fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                            Text(e.name.substringBeforeLast('.'), color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (e.id.toString() in watched && !now) Text("watched", color = Color.White.copy(alpha = 0.4f), fontSize = 11.sp)
                         }
                     }
                 }

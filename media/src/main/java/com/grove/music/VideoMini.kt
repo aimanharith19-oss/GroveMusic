@@ -114,7 +114,13 @@ fun VideoMiniOverlay(accent: Color, modifier: Modifier = Modifier) {
             .pointerInput(h) { detectTapGestures { expand(ctx, h) } }) {
             if (h.exo != null) AndroidView({ c -> androidx.media3.ui.PlayerView(c).apply { useController = false; player = h.exo } },
                 Modifier.fillMaxSize(), onRelease = { it.player = null })
-            else AndroidView({ c -> VLCVideoLayout(c).also { runCatching { h.vlc.attachViews(it, null, false, false) } } },
+            else AndroidView({ c -> VLCVideoLayout(c).also {
+                    runCatching { h.vlc.attachViews(it, null, false, false) }
+                    // redraw the picture on this new (small) surface
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        if (VideoMini.held.value === h) runCatching { h.vlc.setVideoTrackEnabled(false); h.vlc.setVideoTrackEnabled(true) }
+                    }, 250)
+                } },
                 Modifier.fillMaxSize(), onRelease = { if (VideoMini.held.value === h) runCatching { h.vlc.detachViews() } })
         }
         Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
