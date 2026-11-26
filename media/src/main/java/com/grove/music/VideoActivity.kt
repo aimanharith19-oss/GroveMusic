@@ -526,7 +526,7 @@ class VideoActivity : ComponentActivity() {
                     Text("${t(sc)} / ${t(pLen)}", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
                 }
             }
-            AnimatedVisibility(show && !pip, enter = fadeIn(), exit = fadeOut()) {
+            androidx.compose.animation.AnimatedVisibility(show && !pip, enter = fadeIn(), exit = fadeOut()) {
                 Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = 0.75f), 0.3f to Color.Transparent, 0.62f to Color.Transparent,
                     1f to androidx.compose.ui.graphics.lerp(accent, Color.Black, 0.6f).copy(alpha = 0.92f)))) {
