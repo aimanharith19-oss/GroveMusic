@@ -128,7 +128,11 @@ object Peek {
                 v.added.takeIf { it > 0 }?.let { "added" to ago(it * 1000) },
             ),
             more = { tracks(ctx, v.uri) },
-            actions = listOf((if (pos > 5000) "resume" else "play") to open),
+            actions = run {
+                val mv = MvPick.of(ctx, v.id) ?: false
+                listOf((if (pos > 5000) "resume" else "play") to open,
+                    (if (mv) "not MTV" else "MTV") to { MvPick.set(ctx, v.id, !mv) })
+            },
         ))
     }
 

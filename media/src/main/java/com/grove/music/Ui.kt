@@ -1300,6 +1300,7 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             when (sub) {
+                "for you" -> ForYouStats(vm, accent)
                 "music" -> MusicStats(vm, accent)
                 "videos" -> VideoStats(vm, accent)
                 "comics" -> ComicStats(accent)
@@ -1307,7 +1308,7 @@ fun StatsPage(vm: MusicViewModel, accent: Color) {
                 else -> AllStats(vm, accent)
             }
         }
-        SubPivot(listOf("all", "music", "videos", "comics", "book"), sub, accent) { sub = it }
+        SubPivot(listOf("all", "for you", "music", "videos", "comics", "book"), sub, accent) { sub = it }
     }
 }
 
@@ -3055,6 +3056,70 @@ private fun HomeForToday(vm: MusicViewModel, accent: Color) {
                         Text("read a book", color = Dim, fontSize = 11.sp)
                     }
                 }
+            }
+        }
+    }
+}
+
+
+/** Stats → for you: what GroveMedia has learned about your taste, and the songs it picks for you. */
+@Composable
+private fun ForYouStats(vm: MusicViewModel, accent: Color) {
+    val ctx = LocalContext.current
+    val songs = vm.songs.value
+    var prof by remember { mutableStateOf<Taste.Profile?>(null) }
+    var picks by remember { mutableStateOf<List<Taste.Pick>>(emptyList()) }
+    var again by remember { mutableIntStateOf(0) }
+    LaunchedEffect(songs, again) {
+        withContext(Dispatchers.IO) { picks = Taste.recommend(ctx, songs); prof = Taste.profile(ctx, songs) }
+    }
+    val p = prof ?: run { EmptyMsg("learning…"); return }
+    LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        item {
+            SectionLabel("your taste", accent)
+            if (p.listens == 0) Text("play some music: the more you listen, the better the picks get", color = Dim, fontSize = 14.sp)
+            else Text("learned from ${p.listens} listens and ${p.skips} skips · older listens slowly count less", color = Dim, fontSize = 12.sp)
+        }
+        @Composable fun Bars(title: String, rows: List<Pair<String, Double>>) {
+            if (rows.isEmpty()) return
+            Text(title, color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            rows.forEach { (k, v) ->
+                Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(k, color = White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(120.dp))
+                    Box(Modifier.weight(1f).height(10.dp).background(White.copy(alpha = 0.08f))) {
+                        Box(Modifier.fillMaxWidth(v.toFloat().coerceIn(0.03f, 1f)).fillMaxHeight().background(accent))
+                    }
+                }
+            }
+        }
+        item { Bars("genres", p.genres) }
+        item { Bars("artists", p.artists) }
+        item { Bars("eras", p.decades.map { "${it.first}s" to it.second }) }
+        item {
+            Text("what matters most to you", color = White, fontSize = 18.sp, fontWeight = FontWeight.Light, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+            Text("it learns this from which picks you finish and which you skip", color = Dim, fontSize = 12.sp)
+            val mx = p.weights.values.maxOrNull() ?: 1.0
+            p.weights.entries.sortedByDescending { it.value }.forEach { (k, v) ->
+                Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("same $k", color = White, fontSize = 13.sp, modifier = Modifier.width(120.dp))
+                    Box(Modifier.weight(1f).height(10.dp).background(White.copy(alpha = 0.08f))) {
+                        Box(Modifier.fillMaxWidth((v / mx).toFloat().coerceIn(0.03f, 1f)).fillMaxHeight().background(lerp(accent, White, 0.35f)))
+                    }
+                }
+            }
+        }
+        if (picks.isNotEmpty()) item {
+            Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { SectionLabel("picked for you", accent) }
+                Text("play all", color = White, fontSize = 14.sp, modifier = Modifier.background(accent).tilt { vm.playRadio?.invoke(picks.map { it.song }) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp))
+                Text("refresh", color = White, fontSize = 14.sp, modifier = Modifier.padding(start = 8.dp).border(1.dp, White).tilt { again++ }
+                    .padding(horizontal = 10.dp, vertical = 5.dp))
+            }
+        }
+        itemsIndexed(picks) { i, pk ->
+            SongRow(pk.song.title, "${pk.song.artist} · ${pk.why}", pk.song.id, pk.song.artUri, accent) {
+                vm.playRadio?.invoke(picks.drop(i).map { it.song })
             }
         }
     }

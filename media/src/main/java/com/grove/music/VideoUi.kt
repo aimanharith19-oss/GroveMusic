@@ -147,6 +147,7 @@ private fun VideoCard(v: Video, sub: String, modifier: Modifier, badge: (@Compos
 
 @Composable
 private fun FavVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit) {
+    val ctx = LocalContext.current
     val videos = vm.videos.value
     val favs = vm.videoFavs.value.mapNotNull { k ->
         if (k.startsWith("v:")) videos.firstOrNull { it.id.toString() == k.drop(2) }?.let { k to it }
@@ -222,8 +223,9 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
         found = m.toMap(); checked = true
     }
     // music videos (MTV): their own row, never mixed into movies or YouTube videos
-    val artists = remember(vm.songs.value) { vm.songs.value.flatMap { ArtistRepository.split(it.artist) }.map { it.lowercase().trim() }.filter { it.length > 1 }.toHashSet() }
-    val mtv = remember(all, artists) { all.filter { isMusicVideo(it, artists) } }
+    val artists = remember(vm.songs.value) { MvPick.artists(vm.songs.value) }
+    val mvVer = MvPick.version.intValue
+    val mtv = remember(all, artists, mvVer) { all.filter { isMusicVideo(ctx, it, artists) } }
     val mtvIds = remember(mtv) { mtv.mapTo(HashSet()) { it.id } }
     val movies = all.filter { it.id in found && it.id !in mtvIds }
     val others = all.filter { it.id !in found && it.id !in mtvIds }
@@ -314,8 +316,28 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
 
 private val MV_WORDS = Regex("""(?i)(official\s*(music\s*)?video|music\s*video|\bm/?v\b|lyric\s*video|official\s*mv|\bvevo\b|live\s*performance|\bmtv\b)""")
 
-/** a music video: says so in its name or folder, or is "Artist - Song" by an artist in your music */
-fun isMusicVideo(v: Video, artists: Set<String>): Boolean {
+/** your own choice of what is / isn't a music video (••• on a video, or long press → MTV) */
+object MvPick {
+    val version = androidx.compose.runtime.mutableIntStateOf(0)
+    private fun p(ctx: android.content.Context) = ctx.getSharedPreferences("grove", android.content.Context.MODE_PRIVATE)
+    fun of(ctx: android.content.Context, id: Long): Boolean? = when {
+        "$id" in (p(ctx).getStringSet("mv_yes", emptySet()) ?: emptySet()) -> true
+        "$id" in (p(ctx).getStringSet("mv_no", emptySet()) ?: emptySet()) -> false
+        else -> null
+    }
+    fun set(ctx: android.content.Context, id: Long, mv: Boolean) {
+        val yes = (p(ctx).getStringSet("mv_yes", emptySet()) ?: emptySet()).toMutableSet()
+        val no = (p(ctx).getStringSet("mv_no", emptySet()) ?: emptySet()).toMutableSet()
+        if (mv) { yes += "$id"; no -= "$id" } else { no += "$id"; yes -= "$id" }
+        p(ctx).edit().putStringSet("mv_yes", yes).putStringSet("mv_no", no).apply()
+        version.intValue++
+    }
+    fun artists(songs: List<Song>) = songs.flatMap { ArtistRepository.split(it.artist) }.map { it.lowercase().trim() }.filter { it.length > 1 }.toHashSet()
+}
+
+/** a music video: your choice first; otherwise it says so in its name or folder, or is "Artist - Song" by an artist in your music */
+fun isMusicVideo(ctx: android.content.Context, v: Video, artists: Set<String>): Boolean {
+    MvPick.of(ctx, v.id)?.let { return it }
     if (v.parsed.isEpisode) return false
     val name = v.name.substringBeforeLast('.')
     if (MV_WORDS.containsMatchIn(name)) return true
@@ -511,8 +533,13 @@ fun VideoInfoScreen(id: Long, vm: MusicViewModel, accent: Color, open: (Screen) 
                     else if (t != null) Text("rename file", color = W, fontSize = 16.sp, modifier = Modifier.border(2.dp, W)
                         .tilt { rename(listOf(v to safe("${t!!.name}${t!!.year?.let { " ($it)" } ?: ""}") + ".${v.ext}")) }
                         .padding(horizontal = 16.dp, vertical = 9.dp))
+                    val artistsSet = remember(vm.songs.value) { MvPick.artists(vm.songs.value) }
+                    val isMv = MvPick.version.intValue.let { isMusicVideo(ctx, v, artistsSet) }
                     MoreMenu(accent, listOf("hide video" to {
                         vm.hideVideo("v:${v.id}"); android.widget.Toast.makeText(ctx, "moved to hidden — find it in videos → hidden", android.widget.Toast.LENGTH_SHORT).show()
+                    }, (if (isMv) "not a music video" else "this is a music video (MTV)") to {
+                        MvPick.set(ctx, v.id, !isMv)
+                        android.widget.Toast.makeText(ctx, if (isMv) "moved out of MTV" else "moved to MTV", android.widget.Toast.LENGTH_SHORT).show()
                     }))
                 }
                 Text(v.name, color = D, fontSize = 11.sp)
