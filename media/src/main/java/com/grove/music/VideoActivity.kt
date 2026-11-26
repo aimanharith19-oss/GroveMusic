@@ -92,7 +92,8 @@ class VideoActivity : ComponentActivity() {
     private fun pPause() = vlc(Unit) { val e = exo; if (e != null) e.pause() else player.pause() }
     private fun pStop() = vlc(Unit) { val e = exo; if (e != null) e.stop() else player.stop() }
     private var pfd: ParcelFileDescriptor? = null
-    private var videoId = 0L
+    // a Compose state, so the episode list under the video follows what is playing
+    private var videoId by mutableLongStateOf(0L)
     private var vw = 16; private var vh = 9
     private val inPip = mutableStateOf(false)
 
