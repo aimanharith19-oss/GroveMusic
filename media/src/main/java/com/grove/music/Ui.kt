@@ -968,7 +968,7 @@ fun SongRow(title: String, sub: String, songId: Long? = null, art: Uri? = null, 
     // long press: peek at the song's details (add to playlist is one of the card's buttons)
     Row(Modifier.fillMaxWidth().tilt(onLongClick = songId?.let { id -> {
         val s = vm?.songs?.value?.firstOrNull { it.id == id }
-        if (s != null) Peek.song(ctx, s, null, add) else add(listOf(id))
+        if (s != null) Peek.song(ctx, s, vm.songs.value, null, add) else add(listOf(id))
     } }, onClick = onClick).padding(vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (accent != null) Art(art, lerp(accent, Color.Black, 0.4f), Modifier.size(46.dp).padding(end = 0.dp))
