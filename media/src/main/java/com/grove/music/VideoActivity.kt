@@ -432,7 +432,18 @@ class VideoActivity : ComponentActivity() {
         var drag by remember { mutableStateOf<Float?>(null) }
         var fill by remember { mutableStateOf(false) }
         val pip by inPip
-        LaunchedEffect(Unit) { while (true) { pos = pTime; len = pLen; playing = pPlaying; if (playing) watched += 250; delay(250) } }
+        LaunchedEffect(Unit) {
+            while (true) {
+                if (exo != null) { pos = pTime; len = pLen; playing = pPlaying }
+                else {
+                    // VLC can wait for the main thread while it resizes the picture: asking it from here would freeze the screen
+                    val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { Triple(pTime, pLen, pPlaying) }
+                    pos = r.first; len = r.second; playing = r.third
+                }
+                if (playing) watched += 250
+                delay(250)
+            }
+        }
         // scrubbing: by sliding sideways in the middle of the picture, or along the bar (with a frame preview)
         var scrub by remember { mutableStateOf<Long?>(null) }
         var scrubFrac by remember { mutableFloatStateOf(0.5f) }
@@ -531,18 +542,19 @@ class VideoActivity : ComponentActivity() {
                     0f to Color.Black.copy(alpha = 0.75f), 0.3f to Color.Transparent, 0.62f to Color.Transparent,
                     1f to androidx.compose.ui.graphics.lerp(accent, Color.Black, 0.6f).copy(alpha = 0.92f)))) {
                     // header: Grove style — small caps label, big light lowercase title
-                    Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).statusBarsPadding()
+                    Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout).then(if (split) Modifier else Modifier.statusBarsPadding())
                         .padding(start = 12.dp, end = 12.dp, top = 6.dp), verticalAlignment = Alignment.Top) {
                         Btn(Icons.AutoMirrored.Rounded.ArrowBack, outline = false) { finish() }
                         Column(Modifier.weight(1f).padding(start = 6.dp)) {
-                            Text("NOW PLAYING · VIDEO", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
+                            if (!split) Text("NOW PLAYING · VIDEO", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, letterSpacing = 1.sp)
-                            Text(title.value.lowercase(), color = Color.White, fontSize = 26.sp, lineHeight = 30.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(title.value.lowercase(), color = Color.White, fontSize = if (split) 15.sp else 26.sp, lineHeight = if (split) 18.sp else 30.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Light, maxLines = if (split) 1 else 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = if (split) 10.dp else 0.dp))
                         }
                     }
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout)
-                        .navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        .then(if (split) Modifier else Modifier.navigationBarsPadding()).padding(horizontal = if (split) 10.dp else 20.dp, vertical = if (split) 2.dp else 12.dp)) {
                         // frame preview above the bar while dragging it
                         if (scrub != null && fromBar) Box(Modifier.fillMaxWidth().height(120.dp)) {
                             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -558,22 +570,24 @@ class VideoActivity : ComponentActivity() {
                             }
                         }
                         SeekBar(posS, durS, accent, onDrag = { ms, f -> scrub = ms; scrubFrac = f; fromBar = ms != null }) { pTime = it }
-                        TimeRow(posS, durS)
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen, 44, outline = false) { fill = !fill }
-                            Btn(Icons.Rounded.Replay10, 56) { pTime = (pTime - 10_000).coerceAtLeast(0) }
+                        if (!split) TimeRow(posS, durS)
+                        val k = if (split) 0.62f else 1f
+                        Row(Modifier.fillMaxWidth().padding(top = if (split) 0.dp else 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            if (split) Text("${t(posS.longValue)} / ${t(durS.longValue)}", color = Color.White, fontSize = 12.sp)
+                            else Btn(if (fill) Icons.Rounded.FitScreen else Icons.Rounded.Fullscreen, 44, outline = false) { fill = !fill }
+                            Btn(Icons.Rounded.Replay10, (56 * k).toInt()) { pTime = (pTime - 10_000).coerceAtLeast(0) }
                             // accent play button with a soft halo, like the music player
-                            Box(Modifier.size(80.dp).pointerInput(Unit) { detectTapGestures { toggle() } }, contentAlignment = Alignment.Center) {
+                            Box(Modifier.size((80 * k).dp).pointerInput(Unit) { detectTapGestures { toggle() } }, contentAlignment = Alignment.Center) {
                                 Box(Modifier.matchParentSize().background(androidx.compose.ui.graphics.Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent)), CircleShape))
-                                Box(Modifier.size(66.dp).clip(CircleShape).background(accent)
+                                Box(Modifier.size((66 * k).dp).clip(CircleShape).background(accent)
                                     .then(Modifier.border(2.dp, Color.White, CircleShape)), contentAlignment = Alignment.Center) {
-                                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(36.dp))
+                                    Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size((36 * k).dp))
                                 }
                             }
-                            Btn(Icons.Rounded.Forward10, 56) { pTime = pTime + 10_000 }
+                            Btn(Icons.Rounded.Forward10, (56 * k).toInt()) { pTime = pTime + 10_000 }
                             Row {
-                                Btn(Icons.Rounded.Headphones, 44, outline = false) { goAudioOnly() }
-                                Btn(Icons.Rounded.PictureInPictureAlt, 44, outline = false) { enterPip() }
+                                Btn(Icons.Rounded.Headphones, (44 * k).toInt().coerceAtLeast(34), outline = false) { goAudioOnly() }
+                                Btn(Icons.Rounded.PictureInPictureAlt, (44 * k).toInt().coerceAtLeast(34), outline = false) { enterPip() }
                             }
                         }
                     }
