@@ -712,6 +712,7 @@ class PlayerConnection(private val ctx: Context) {
     }
 
     fun playAt(index: Int) = run { it.seekTo(index, 0); it.play() }
+    fun move(from: Int, to: Int) = run { if (from in 0 until it.mediaItemCount && to in 0 until it.mediaItemCount) it.moveMediaItem(from, to) }
     fun removeAt(index: Int) = run { if (index in 0 until it.mediaItemCount) it.removeMediaItem(index) }
     fun playPause() = run { if (it.playWhenReady && it.playbackState != Player.STATE_ENDED) it.pause() else { if (it.playbackState == Player.STATE_ENDED) it.seekTo(0); it.play() } }
     fun next() = run { it.seekToNext() }

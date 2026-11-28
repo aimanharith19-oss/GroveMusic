@@ -380,6 +380,7 @@ class VideoActivity : ComponentActivity() {
         getSharedPreferences("video_pos", MODE_PRIVATE).edit().apply {
             if (len > 0 && t > len - 30_000) remove(videoId.toString()) else putLong(videoId.toString(), t)
         }.apply()
+        WatchVersion.intValue++
     }
 
     private fun pipParams(auto: Boolean): PictureInPictureParams? {
@@ -434,6 +435,7 @@ class VideoActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun Screen() {
         var show by remember { mutableStateOf(true) }
@@ -490,7 +492,8 @@ class VideoActivity : ComponentActivity() {
                 }
             }, onDragCancel = { downY = 0f }) { ch, d -> ch.consume(); downY = (downY + d).coerceAtLeast(0f) }
         }.graphicsLayer { translationY = downY }.background(Color.Black.copy(alpha = 1f - f * 0.9f))) {
-        Box((if (split) Modifier.fillMaxWidth().statusBarsPadding().aspectRatio(16f / 9f) else Modifier.fillMaxSize()).background(Color.Black).graphicsLayer {
+        Box((if (split) Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Top))
+                .windowInsetsPadding(WindowInsets.statusBarsIgnoringVisibility.only(WindowInsetsSides.Top)).aspectRatio(16f / 9f) else Modifier.fillMaxSize()).background(Color.Black).graphicsLayer {
             val sc = 1f - f * 0.55f
             scaleX = sc; scaleY = sc
             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)

@@ -51,30 +51,97 @@ private val D = Color.White.copy(alpha = 0.55f)
 
 private val thumbGate = kotlinx.coroutines.sync.Semaphore(3)
 
-/** A frame from the video itself, for videos without a poster. */
+/** changes whenever a resume point is saved, so every progress line updates */
+val WatchVersion = androidx.compose.runtime.mutableIntStateOf(0)
+
+/** How far you've watched (resume point), like YouTube's red line: for every video, movie, episode and music video. */
 @Composable
-fun VideoThumb(v: Video, modifier: Modifier) {
+fun WatchBar(v: Video, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    val ver = WatchVersion.intValue
+    val pos = remember(v.id, ver) { ctx.getSharedPreferences("video_pos", Context.MODE_PRIVATE).getLong(v.id.toString(), 0) }
+    val done = remember(v.id, ver) { v.id.toString() in (ctx.getSharedPreferences("grove", Context.MODE_PRIVATE).getStringSet("watched_eps", emptySet()) ?: emptySet()) }
+    val frac = when { pos > 5000 && v.duration > 0 -> (pos.toFloat() / v.duration).coerceIn(0.03f, 1f); done -> 1f; else -> return }
+    val accent = remember { Color(Prefs(ctx).accent) }
+    Box(modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f))) {
+        Box(Modifier.fillMaxWidth(frac).fillMaxHeight().background(accent))
+    }
+}
+
+/**
+ * A picture for a video with no poster: a frame from somewhere in the middle (not the usual black
+ * first frame), picked the same way each time and saved. Music videos first try their official artwork online.
+ */
+object Thumbs {
+    private fun file(ctx: Context, v: Video) = java.io.File(java.io.File(ctx.cacheDir, "vthumbs").apply { mkdirs() }, "${v.id}_${v.size}.jpg")
+
+    fun get(ctx: Context, v: Video, mv: Boolean): Bitmap? {
+        val f = file(ctx, v)
+        if (f.exists() && f.length() > 0) return android.graphics.BitmapFactory.decodeFile(f.path)
+        val bmp = (if (mv) online(v) else null) ?: frame(ctx, v) ?: system(ctx, v) ?: return null
+        runCatching { f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 82, it) } }
+        return bmp
+    }
+
+    /** official music-video artwork from the iTunes catalogue */
+    private fun online(v: Video): Bitmap? = runCatching {
+        val (artist, song) = mvNames(v)
+        val term = java.net.URLEncoder.encode("$artist $song".trim(), "UTF-8")
+        val c = java.net.URL("https://itunes.apple.com/search?term=$term&entity=musicVideo&limit=1").openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 6000; c.readTimeout = 6000
+        val art = org.json.JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optJSONArray("results")?.optJSONObject(0)
+            ?.optString("artworkUrl100")?.takeIf { it.isNotBlank() } ?: return@runCatching null
+        java.net.URL(art.replace("100x100bb", "640x360bb")).openStream().use { android.graphics.BitmapFactory.decodeStream(it) }
+    }.getOrNull()
+
+    /** a bright-enough frame from 20–60% into the video */
+    private fun frame(ctx: Context, v: Video): Bitmap? = runCatching {
+        val r = android.media.MediaMetadataRetriever()
+        try {
+            if (v.id < 0) r.setDataSource(v.path) else r.setDataSource(ctx, v.uri)
+            val len = (v.duration.takeIf { it > 0 } ?: r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
+            val rnd = kotlin.random.Random(v.id)
+            var best: Bitmap? = null; var bestLum = -1.0
+            repeat(3) {
+                val t = (len * (0.2 + rnd.nextDouble() * 0.4)).toLong() * 1000
+                val b = if (Build.VERSION.SDK_INT >= 27) r.getScaledFrameAtTime(t, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 480, 270)
+                    else r.getFrameAtTime(t, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                if (b != null) {
+                    val lum = lum(b)
+                    if (lum > bestLum) { best = b; bestLum = lum }
+                    if (lum > 45) return@runCatching b
+                }
+            }
+            best
+        } finally { r.release() }
+    }.getOrNull()
+
+    private fun lum(b: Bitmap): Double {
+        var sum = 0.0; var n = 0
+        for (x in 0 until b.width step (b.width / 12).coerceAtLeast(1)) for (y in 0 until b.height step (b.height / 8).coerceAtLeast(1)) {
+            val c = b.getPixel(x, y); sum += 0.3 * (c shr 16 and 255) + 0.59 * (c shr 8 and 255) + 0.11 * (c and 255); n++
+        }
+        return if (n == 0) 0.0 else sum / n
+    }
+
+    private fun system(ctx: Context, v: Video): Bitmap? = runCatching {
+        if (v.id < 0) android.media.ThumbnailUtils.createVideoThumbnail(java.io.File(v.path ?: ""), Size(480, 270), null)
+        else if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(v.uri, Size(480, 270), null)
+        else @Suppress("DEPRECATION") android.media.ThumbnailUtils.createVideoThumbnail(v.path ?: "", MediaStore.Video.Thumbnails.MINI_KIND)
+    }.getOrNull()
+}
+
+/** A frame from the video itself, for videos without a poster, with the watched line. */
+@Composable
+fun VideoThumb(v: Video, modifier: Modifier, mv: Boolean = false) {
     val ctx = LocalContext.current
     val bmp by produceState<Bitmap?>(null, v.id) {
-        value = withContext(Dispatchers.IO) { thumbGate.withPermit {
-            runCatching {
-                if (v.id < 0) android.media.ThumbnailUtils.createVideoThumbnail(java.io.File(v.path ?: ""), Size(480, 270), null)
-                else if (Build.VERSION.SDK_INT >= 29) ctx.contentResolver.loadThumbnail(v.uri, Size(480, 270), null)
-                else @Suppress("DEPRECATION") android.media.ThumbnailUtils.createVideoThumbnail(v.path ?: "", MediaStore.Video.Thumbnails.MINI_KIND)
-            }.getOrNull()
-        } }
+        value = withContext(Dispatchers.IO) { thumbGate.withPermit { Thumbs.get(ctx, v, mv) } }
     }
     Box(modifier.background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
         bmp?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()) }
             ?: Icon(Icons.Rounded.Movie, null, tint = D)
-        // how far you've watched (resume point), like YouTube's red line
-        val pos = remember(v.id) { if (v.id > 0) ctx.getSharedPreferences("video_pos", Context.MODE_PRIVATE).getLong(v.id.toString(), 0) else 0L }
-        if (pos > 5000 && v.duration > 0) {
-            val accent = remember { Color(Prefs(ctx).accent) }
-            Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.25f))) {
-                Box(Modifier.fillMaxWidth((pos.toFloat() / v.duration).coerceIn(0.03f, 1f)).fillMaxHeight().background(accent))
-            }
-        }
+        WatchBar(v, Modifier.align(Alignment.BottomStart))
     }
 }
 
@@ -263,7 +330,7 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
                     val t = found[v.id]
                     Column(Modifier.weight(1f).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
-                            if (t?.poster != null) AsyncImage(t!!.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                            if (t?.poster != null) { AsyncImage(t!!.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()); WatchBar(v, Modifier.align(Alignment.BottomStart)) }
                             else VideoThumb(v, Modifier.matchParentSize())
                         }
                         Text((t?.name ?: v.parsed.title).lowercase(), color = W, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
@@ -280,7 +347,7 @@ private fun AllVideos(vm: MusicViewModel, accent: Color, open: (Screen) -> Unit)
                     val (artist, song) = mvNames(v)
                     Column(Modifier.width(190.dp).tilt(onLongClick = { Peek.video(ctx, v) { VideoActivity.open(ctx, v, v.parsed.title) } }) { open(Screen.VideoInfo(v.id)) }) {
                         Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                            VideoThumb(v, Modifier.matchParentSize())
+                            VideoThumb(v, Modifier.matchParentSize(), mv = true)
                             Text("MTV", color = W, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
                                 .background(accent).padding(horizontal = 4.dp, vertical = 1.dp))
                             Text(fmtDur(v.duration), color = W, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd)
@@ -615,7 +682,7 @@ fun ShowScreen(name: String, vm: MusicViewModel, accent: Color, open: (Screen) -
                                 if (v != null) VideoActivity.open(ctx, v, "${t?.name ?: name} · S${e.season}E${e.number}${if (e.name.isNotBlank()) " · ${e.name}" else ""}")
                             }) {
                                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                                    if (e.still != null) AsyncImage(e.still, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize())
+                                    if (e.still != null) { AsyncImage(e.still, null, contentScale = ContentScale.Crop, modifier = Modifier.matchParentSize()); v?.let { WatchBar(it, Modifier.align(Alignment.BottomStart)) } }
                                     else if (v != null) VideoThumb(v, Modifier.matchParentSize()) else Box(Modifier.matchParentSize().background(Color(0xFF1A1A1A)))
                                     Text("E${e.number}", color = W, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart)
                                         .background(if (v != null) accent else Color.Black.copy(alpha = 0.6f)).padding(horizontal = 5.dp, vertical = 1.dp))

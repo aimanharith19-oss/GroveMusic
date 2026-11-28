@@ -41,6 +41,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -2332,6 +2335,8 @@ private fun fmt(ms: Long): String {
 
 @Composable
 fun NowPlayingScreen(vm: MusicViewModel, conn: PlayerConnection, prefs: Prefs, accent: Color, open: (Screen) -> Unit) {
+    val keepView = LocalView.current
+    DisposableEffect(Unit) { keepView.keepScreenOn = true; onDispose { keepView.keepScreenOn = false } }
     val ctx = LocalContext.current
     val item = conn.current.value
     if (item == null) { EmptyMsg("nothing playing"); return }
@@ -2564,11 +2569,45 @@ fun QueuePanel(conn: PlayerConnection, accent: Color, deep: Color, onClose: () -
                 Icon(Icons.Rounded.KeyboardArrowDown, "close", tint = White,
                     modifier = Modifier.padding(bottom = 10.dp).size(40.dp).clip(CircleShape).tilt(onClose).padding(6.dp))
             }
-            Text(if (q.isEmpty()) "nothing after this song" else "${q.size} songs · slide a song away to remove it",
+            // rearrange: hold the ≡ handle and drag (in shuffle the order is the shuffle's own, so only without shuffle)
+            val canMove = !conn.shuffle.value
+            Text(if (q.isEmpty()) "nothing after this song" else "${q.size} songs · slide away to remove" +
+                if (canMove) " · drag ≡ to move" else " · turn shuffle off to rearrange",
                 color = White.copy(alpha = 0.7f), fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            var dragFrom by remember { mutableStateOf<Int?>(null) }
+            var dragTo by remember { mutableIntStateOf(0) }
+            var dy by remember { mutableFloatStateOf(0f) }
+            var rowH by remember { mutableFloatStateOf(1f) }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                 itemsIndexed(q, key = { pos, it -> "${it.second.mediaId}#${it.first}#$pos" }) { pos, (index, item) ->
-                    QueueRow(item, accent, pos, Modifier.animateItem(), onPlay = { conn.playAt(index) }) { conn.removeAt(index) }
+                    val from = dragFrom
+                    val shift = when {
+                        from == null -> 0f
+                        pos == from -> dy
+                        from < dragTo && pos in (from + 1)..dragTo -> -rowH
+                        from > dragTo && pos in dragTo until from -> rowH
+                        else -> 0f
+                    }
+                    QueueRow(item, accent, pos,
+                        (if (from == null) Modifier.animateItem() else Modifier)
+                            .onSizeChanged { rowH = it.height.toFloat() }
+                            .zIndex(if (pos == from) 1f else 0f)
+                            .graphicsLayer { translationY = shift; if (pos == from) { scaleX = 1.03f; scaleY = 1.03f } },
+                        onPlay = { conn.playAt(index) },
+                        handle = if (!canMove) null else Modifier.pointerInput(pos, q.size) {
+                            detectDragGestures(
+                                onDragStart = { dragFrom = pos; dragTo = pos; dy = 0f },
+                                onDragEnd = {
+                                    val f = dragFrom; val t = dragTo
+                                    if (f != null && t != f) conn.move(q[f].first, q[t].first)
+                                    dragFrom = null; dy = 0f
+                                },
+                                onDragCancel = { dragFrom = null; dy = 0f },
+                            ) { ch, d ->
+                                ch.consume(); dy += d.y
+                                dragTo = (pos + kotlin.math.round(dy / rowH).toInt()).coerceIn(0, q.size - 1)
+                            }
+                        }) { conn.removeAt(index) }
                 }
             }
         }
@@ -2576,7 +2615,7 @@ fun QueuePanel(conn: PlayerConnection, accent: Color, deep: Color, onClose: () -
 }
 
 @Composable
-fun QueueRow(item: MediaItem, accent: Color, pos: Int, modifier: Modifier, onPlay: () -> Unit, onRemove: () -> Unit) {
+fun QueueRow(item: MediaItem, accent: Color, pos: Int, modifier: Modifier, onPlay: () -> Unit, handle: Modifier? = null, onRemove: () -> Unit) {
     val off = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     var w by remember { mutableIntStateOf(1) }
@@ -2613,6 +2652,8 @@ fun QueueRow(item: MediaItem, accent: Color, pos: Int, modifier: Modifier, onPla
             }
             if (pos == 0) Text("NEXT", color = White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.background(accent).padding(horizontal = 6.dp, vertical = 2.dp))
+            if (handle != null) Icon(Icons.Rounded.DragHandle, "move", tint = White.copy(alpha = 0.7f),
+                modifier = Modifier.padding(start = 8.dp).size(40.dp).then(handle).padding(8.dp))
         }
     }
 }
