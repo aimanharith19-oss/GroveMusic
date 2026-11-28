@@ -191,10 +191,7 @@ class VideoActivity : ComponentActivity() {
         // true full screen: draw under the camera cut-out, hide status & navigation bars (swipe from an edge to peek)
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS }
-        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
-            hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
+        applyBars(resources.configuration)
         current = this
         // let VLC drop late frames: forcing every frame made 4K 60fps fall behind and show a black picture
         val mini = if (intent.getBooleanExtra("fromMini", false)) VideoMini.take() else null
@@ -403,6 +400,22 @@ class VideoActivity : ComponentActivity() {
         super.onUserLeaveHint()
         if (audioOnly.value) return
         if (Build.VERSION.SDK_INT in 26..30 && pPlaying) pipParams(true)?.let { enterPictureInPictureMode(it) }
+    }
+
+    /** portrait: keep the status bar (time, battery) at the top; landscape: true full screen */
+    private fun applyBars(c: Configuration) {
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            if (c.orientation == Configuration.ORIENTATION_PORTRAIT) show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            else hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            isAppearanceLightStatusBars = false
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyBars(newConfig)
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
